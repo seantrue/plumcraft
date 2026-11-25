@@ -2657,6 +2657,46 @@
           "timeout": 30
         }
       ]
+    },
+    {
+      "name": "promoted parameters sit under their node's title on the group's face, and can be renamed and reset",
+      "about": "FR5: two nodes in a collapsed group, three of their inputs promoted; the group's face lists each node's rows under that node's title as its face shows it (a rename of the node follows); a promoted row's menu renames the parameter, the graph keeps the new label and the inner port its own name, an empty name goes back to the port's, and undo returns",
+      "half": "edit",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.replace", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.repeat", "pos": [300, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.title", "params": {"node": "$a", "title": "Swap"}}},
+        {"call": "command.run", "params": {"command": "node.title", "params": {"node": "$b", "title": "Echo"}}},
+        {"call": "command.run", "params": {"command": "group.create", "params": {"nodes": ["$a", "$b"], "name": "words", "collapsed": true}}, "save": {"g": "/result/id"}},
+        {"call": "command.run", "params": {"command": "group.promote", "params": {"group": "$g", "port": {"node": "$a", "port": "find"}}}},
+        {"call": "command.run", "params": {"command": "group.promote", "params": {"group": "$g", "port": {"node": "$b", "port": "times"}}}},
+        {"call": "command.run", "params": {"command": "group.promote", "params": {"group": "$g", "port": {"node": "$a", "port": "with"}}}},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs": {"$find": {"where": {"key": "find"}, "want": {"/section": "Swap", "/label": "find"}}}}}}}},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs": {"$find": {"where": {"key": "with"}, "want": {"/label": "with", "/node": "$a"}}}}}}}},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs": {"$find": {"where": {"key": "times"}, "want": {"/section": "Echo"}}}}}}}},
+        {"call": "menu.get", "params": {"context": {"kind": "input", "port": {"node": "$a", "port": "find"}}}, "expect": {"/result/items/0/command": "name.edit", "/result/items/0/label": "Rename Parameter…", "/result/items/1/command": "group.editPromoted", "/result/items/1/enabled": false}},
+        {"call": "command.run", "params": {"command": "group.editPromoted", "params": {"group": "$g", "label": "find", "newLabel": "look for"}}},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs": {"$find": {"where": {"key": "find"}, "want": {"/label": "look for", "/section": "Swap"}}}}}}}},
+        {"call": "graph.get", "expect": {"/result/groups/$g/promoted/0/label": "look for", "/result/groups/$g/promoted/0/port/port": "find"}},
+        {"call": "command.run", "params": {"command": "group.editPromoted", "params": {"group": "$g", "label": "look for", "newLabel": ""}}, "expect": {"/result/promoted/label": "find"}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}},
+        {"call": "graph.get", "expect": {"/result/groups/$g/promoted/0/label": "look for"}},
+        {"call": "command.run", "params": {"command": "node.title", "params": {"node": "$a", "title": "Swap words"}}},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs": {"$find": {"where": {"key": "find"}, "want": {"/section": "Swap words"}}}}}}}}
+      ]
+    },
+    {
+      "name": "a promoted parameter's row on a group's face has its own menu: rename it, or go back to the port's own name",
+      "about": "FR5: a secondary click on the row of a promoted parameter on a collapsed group's face opens that row's menu (the input's, through the core's gesture), not the group's. A driver that reports geometry gives the row's rect as a shell would measure it",
+      "half": "read",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.replace", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "group.create", "params": {"nodes": ["$a"], "name": "words", "collapsed": true}}, "save": {"g": "/result/id"}},
+        {"call": "command.run", "params": {"command": "group.promote", "params": {"group": "$g", "port": {"node": "$a", "port": "find"}}}},
+        {"call": "scene.get"},
+        {"geometry": [{"node": "group:$g", "size": [220, 120], "header": 28, "pins": {"in": [43]}, "rows": [[60, 32, 210, 54]]}]},
+        {"gesture": {"kind": "context", "at": {"$locate": {"node": "group:$g", "row": 0}}, "slop": 2}, "only": "rows", "expect": {"/result/context": {"kind": "input", "port": {"node": "$a", "port": "find"}}, "/result/menu": {"$deep": {"label": "Rename Parameter…"}}}}
+      ]
     }
   ]
 }

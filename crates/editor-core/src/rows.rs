@@ -33,6 +33,9 @@ pub struct InputRow {
     pub label: String,
     pub port: Port,
     pub kind: RowKind,
+    /// On a collapsed group's face, before the first promoted row of each source node: that
+    /// node's title as its face shows it (FR5). None for every other row.
+    pub section: Option<String>,
 }
 
 /// A port's label: the catalogue's, else its name.
@@ -63,11 +66,17 @@ pub fn input_rows_with(def: &NodeDef, id: &NodeId, graph: &Graph, wired: &dyn Fn
             for (index, name) in names.into_iter().take(count).enumerate() {
                 let mut slot = port.clone();
                 slot.variadic = None;
-                rows.push(InputRow { label: format!("{base} {name}"), key: name, port: slot, kind: RowKind::Slot { parent: port.name.clone(), index } });
+                rows.push(InputRow {
+                    label: format!("{base} {name}"),
+                    key: name,
+                    port: slot,
+                    section: None,
+                    kind: RowKind::Slot { parent: port.name.clone(), index },
+                });
             }
             continue;
         }
-        rows.push(InputRow { key: port.name.clone(), label: port_label(port), port: port.clone(), kind: RowKind::Plain });
+        rows.push(InputRow { key: port.name.clone(), label: port_label(port), port: port.clone(), kind: RowKind::Plain, section: None });
         if let Some(options) = &port.options {
             let choice = values.and_then(|v| v.get(&port.name)).unwrap_or(&port.default);
             let key = match choice {
@@ -80,6 +89,7 @@ pub fn input_rows_with(def: &NodeDef, id: &NodeId, graph: &Graph, wired: &dyn Fn
                     label: format!("{} › {}", port_label(port), port_label(sub)),
                     port: sub.clone(),
                     kind: RowKind::Sub { parent: port.name.clone() },
+                    section: None,
                 });
             }
         }
@@ -217,11 +227,27 @@ pub fn proxy_inputs(graph: &Graph, catalog: &SchemaReply, gid: &GroupId) -> (Vec
             }
         }
     }
+    // FR5: promoted rows grouped by the node they come from, in the order the nodes are first
+    // promoted, each group under its node's title as its face shows it (one source node still
+    // gets a header). Nested groups promote the innermost node's own port, so the header is that
+    // node's title (assumed).
+    let mut sources: Vec<&NodeId> = Vec::new();
     for p in &grp.promoted {
+        if !sources.contains(&&p.port.node) {
+            sources.push(&p.port.node);
+        }
+    }
+    let ordered = sources.iter().flat_map(|n| grp.promoted.iter().filter(move |p| &p.port.node == *n));
+    let mut headed: Vec<NodeId> = Vec::new();
+    for p in ordered {
         if rows.iter().zip(&inputs).any(|(n, r)| n == &p.port.node && r.key == p.port.port) {
             continue;
         }
         if let Some(mut row) = row_for(&p.port) {
+            if !headed.contains(&p.port.node) {
+                headed.push(p.port.node.clone());
+                row.section = Some(title(&p.port.node));
+            }
             row.label.clone_from(&p.label);
             if !p.doc.is_empty() {
                 row.port.tooltip = Some(p.doc.clone());

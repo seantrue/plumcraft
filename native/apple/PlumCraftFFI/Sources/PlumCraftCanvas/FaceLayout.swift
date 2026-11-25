@@ -25,6 +25,8 @@ public enum FaceMetrics {
     /// comes (contract 8.3).
     public static let statusSlot: CGFloat = 88
     public static let footerLine: CGFloat = 15
+    /// A section header above a group's promoted rows (FR5): the source node's title.
+    public static let section: CGFloat = 18
     /// The node's icon and the more-button (N4 slice 2), square, in the header.
     public static let icon: CGFloat = 14
     public static let more: CGFloat = 18
@@ -92,6 +94,7 @@ public struct FaceLayout: Sendable, Equatable {
             && a.preview == b.preview && a.footer == b.footer && a.title == b.title && a.status == b.status
             && a.badges.map(\.text) == b.badges.map(\.text) && a.badges.map(\.rect) == b.badges.map(\.rect)
             && a.icon == b.icon && a.more == b.more
+            && a.sections.map(\.text) == b.sections.map(\.text) && a.sections.map(\.rect) == b.sections.map(\.rect)
     }
 
     /// The header's and footer's parts the core hit-tests (`geometry.parts`): the title, the
@@ -117,6 +120,8 @@ public struct FaceLayout: Sendable, Equatable {
     /// Each input row's caption rect where a tap on the row opens its node's value editor (the
     /// scene row's `editor`, FR1) and the row has no widget; nil elsewhere.
     public var opens: [CGRect?] = []
+    /// FR5: each section header above a promoted row (its text and rect, face coordinates).
+    public var sections: [(text: String, rect: CGRect)] = []
 
     /// What `plum_geometry_set` takes for this face: each row's widget rect, or the rect a tap
     /// opens the editor in (the core's hit test finds rows by these).
@@ -184,6 +189,7 @@ extension FaceLayout {
             if let n = r.named { lw += TextLine.width(n.name + " →", fonts.small) + 6 }
             if let b = r.badge { lw += TextLine.width(b.text, fonts.small) + 14 }
             labelWidths.append(lw)
+            if let s = r.section { inW = max(inW, 10 + TextLine.width(s, fonts.small) + 8) }
             var ws: CGSize?
             if r.source.word == .own, let w = r.widget { ws = Self.widgetSize(w, r, fonts) }
             widgetSizes.append(ws)
@@ -210,9 +216,15 @@ extension FaceLayout {
         var inputPins: [CGFloat] = []
         var widgets: [CGRect?] = []
         var opens: [CGRect?] = []
+        var sections: [(text: String, rect: CGRect)] = []
         var y = top
         for (k, r) in face.inputs.enumerated() {
             let rh = inHeights[k]
+            // FR5: the source node's title above its promoted rows
+            if let s = r.section, !collapsed {
+                sections.append((text: s, rect: CGRect(x: 0, y: y, width: max(40, min(inW, width - outW - (outW > 0 ? 12 : 0))), height: M.section)))
+                y += M.section
+            }
             let rect = CGRect(x: 0, y: y, width: inW, height: rh)
             inputRows.append(rect)
             inputPins.append(collapsed ? M.header / 2 : y + min(rh, M.row) / 2)
@@ -312,6 +324,7 @@ extension FaceLayout {
         made.titleWidth = titleW
         made.footerParts = collapsed ? [] : footerParts
         made.opens = collapsed ? opens.map { _ in nil } : opens
+        made.sections = sections
         return made
     }
 

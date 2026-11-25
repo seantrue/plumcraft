@@ -276,8 +276,12 @@ pub fn commit(d: &crate::document::Document, target: &NameTarget, text: &str) ->
             Some(("output.label", json!({"from": {"node": node, "port": port}, "name": t})))
         }
         NameTarget::Promoted { group, label } => {
+            // empty: back to the default, the inner port's own name (FR5)
             if t.is_empty() {
-                return Err("a parameter needs a label".into());
+                let g = graph.group(&GroupId::from(group.as_str())).ok_or_else(|| format!("no group {}", shown_id(group)))?;
+                let p = g.promoted.iter().find(|p| p.label == *label).ok_or_else(|| format!("no parameter {label} in {}", g.name))?;
+                return Ok((label != &plumcraft_graph::default_promoted_label(&p.port))
+                    .then(|| ("group.editPromoted", json!({"group": group, "label": label, "newLabel": ""}))));
             }
             (label != t).then(|| ("group.editPromoted", json!({"group": group, "label": label, "newLabel": t})))
         }

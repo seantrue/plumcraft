@@ -1125,6 +1125,10 @@ impl<'a> NodeViewer<'a> {
         // a collapsed group's face: a promoted value's editor opens from its row (FR1); a node's
         // own opens from its footer
         let proxy = node.proxy.is_some();
+        // FR5: a promoted row's source node, before the first of its rows (the core's header)
+        if let Some(section) = face.section.as_deref() {
+            ui.label(egui::RichText::new(format!("{section} ›")).small().color(self.tokens.text_dim)).on_hover_text("The node these parameters come from");
+        }
         let port = &row.port;
         let at = PortRef::new(node_id.clone(), row.key.clone());
         let label = face.label.as_str();

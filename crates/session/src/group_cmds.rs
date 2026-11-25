@@ -55,7 +55,7 @@ fn group_promote(s: &mut Session, p: &Value) -> Result<Value> {
     let port = port_param(p, "port")?;
     let label = match opt_str_param(p, "label")? {
         Some(l) => l.to_owned(),
-        None => port.port.rsplit('.').next().unwrap_or(&port.port).to_owned(),
+        None => plumcraft_graph::default_promoted_label(&port),
     };
     let doc = opt_str_param(p, "doc")?.unwrap_or_default().to_owned();
     s.edit("Promote", |g, catalog| Ok(g.promote(catalog, &id, port, &label, &doc)?))?;
@@ -80,9 +80,10 @@ fn group_edit_promoted(s: &mut Session, p: &Value) -> Result<Value> {
         min: bound_param(p, "min")?,
         max: bound_param(p, "max")?,
     };
+    // the parameter by its inner port: its label may have changed, to the default when empty
+    let port = s.graph().group(&id).and_then(|g| g.promoted.iter().find(|p| p.label == label).map(|p| p.port.clone()));
     s.edit("Edit Parameter", |g, catalog| Ok(g.edit_promoted(catalog, &id, &label, &edit)?))?;
-    let new = edit.label.unwrap_or(label);
-    let promoted = s.graph().group(&id).and_then(|g| g.promoted.iter().find(|p| p.label == new).cloned());
+    let promoted = s.graph().group(&id).and_then(|g| g.promoted.iter().find(|p| Some(&p.port) == port.as_ref()).cloned());
     Ok(json!({"promoted": promoted}))
 }
 
@@ -187,7 +188,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Edit Group Parameter",
             menu: &[],
             shortcut: None,
-            params: "{group: group id, label, newLabel?: string, doc?: string, min?: number | null, max?: number | null} -> {promoted} (rename a promoted parameter, or set its doc or its range, inside the inner port's range; null clears a bound)",
+            params: "{group: group id, label, newLabel?: string, doc?: string, min?: number | null, max?: number | null} -> {promoted} (rename a promoted parameter, or set its doc or its range, inside the inner port's range; null clears a bound). The label is the group's own name for it, kept in the graph; the inner port keeps its name. An empty newLabel goes back to the default, the inner port's own name (numbered when another parameter of the group has it)",
             enabled: has_groups,
             run: group_edit_promoted,
             journal: true,
@@ -409,6 +410,22 @@ mod tests {
             p.as_object_mut().unwrap().extend(bad.as_object().unwrap().clone());
             assert!(s.execute("group.editPromoted", &p).is_err(), "{p}");
         }
+    }
+
+    /// FR5: a promoted parameter renamed, then back to the port's own name with an empty one,
+    /// each one undo step; the reply names the parameter as it now is.
+    #[test]
+    fn a_promoted_parameter_is_renamed_and_reset() {
+        let mut s = session();
+        let a = s.execute("node.add", &json!({"kind": "text.slow"})).unwrap()["id"].as_str().unwrap().to_owned();
+        s.execute("group.create", &json!({"nodes": [a], "name": "think"})).unwrap();
+        assert_eq!(s.execute("group.promote", &json!({"group": "g1", "port": {"node": a, "port": "seconds"}})).unwrap()["label"], "seconds");
+        let r = s.execute("group.editPromoted", &json!({"group": "g1", "label": "seconds", "newLabel": "delay"})).unwrap();
+        assert_eq!(r["promoted"]["label"], "delay");
+        let r = s.execute("group.editPromoted", &json!({"group": "g1", "label": "delay", "newLabel": ""})).unwrap();
+        assert_eq!((r["promoted"]["label"].as_str(), r["promoted"]["port"]["port"].as_str()), (Some("seconds"), Some("seconds")));
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.graph().group(&"g1".into()).unwrap().promoted[0].label, "delay");
     }
 
     #[test]
