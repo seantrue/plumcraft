@@ -674,3 +674,36 @@ def test_a_watched_list_of_lists_shows_the_item_its_path_asks_for():
     # a list that isn't nested says nothing of levels
     r, _ = go_with(e, exec.Memo(), nodes, [], ["v"], [{"node": "v", "port": "values", "path": [1]}])
     assert "path" not in r["watch"][0] and "levels" not in r["watch"][0]
+
+
+def test_a_whole_list_input_with_a_sweep_of_its_own_runs_once_per_item_of_it():
+    """Vector 11's wiring (the report's graph): a range of 5 into a step that makes 2 a run, the
+    slice 1, a step with a variadic input run once per scale and once per run (a product of 15 over
+    two sweeps, through its slots), and Zip taking the masks and the scales whole. The masks bring
+    the runs' sweep, which the scales don't: Zip runs once per run, each with its 3 (assumed, to be
+    confirmed)."""
+
+    class Join(Node):
+        definition = {
+            "id": "t.join",
+            "inputs": [{"name": "c", "type": "STRING", "variadic": {"template": "c{n}", "names": [], "min": 1, "max": 4}}],
+            "outputs": [{"name": "text", "type": "STRING"}],
+        }
+
+        def run(self, inputs, cx):
+            return {"text": " ".join(str(inputs[k]) for k in sorted(inputs) if k.startswith("c"))}
+
+    e = engine().with_node(Join())
+    nodes = {
+        "r": {"kind": "vary.range", "values": {"start": 1.0, "stop": 5.0, "num": 5, "endpoint": True}},
+        "s": {"kind": "vary.range", "values": {"start": 10.0, "num": 2, "endpoint": True}},
+        "k": {"kind": "vary.range", "values": {"start": 1.0, "stop": 3.0, "num": 3, "endpoint": True}},
+        "m": {"kind": "t.join"},
+        "z": {"kind": "seq.zip"},
+    }
+    wires = [("r", "values", "s", "stop"), ("s", "values", "m", "c1|1"), ("k", "values", "m", "c2"), ("m", "text", "z", "a"), ("k", "values", "z", "b")]
+    r, _ = go_with(e, exec.Memo(), nodes, wires, ["z", "m"])
+    assert len(out(r, "m", "text")) == 15, "lists into a variadic input's slots map as lists into ports do"
+    z = out(r, "z", "tuples")
+    assert [len(run) for run in z] == [3] * 5
+    assert z[1] == [["2.0 1.0", 1.0], ["2.0 2.0", 2.0], ["2.0 3.0", 3.0]]
