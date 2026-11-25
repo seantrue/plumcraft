@@ -115,23 +115,47 @@ impl WorkflowWire {
     }
 
     /// The value this wire delivers from `value` (spec 7.6 rule 3): a range keeps a list a list
-    /// (a sweep of its own, shorter than the list it came from), an index takes one item.
+    /// (a sweep of its own, shorter than the list it came from), an index takes one item. A
+    /// nested list (a step run once per item that made a list each run) is sliced at the level
+    /// its source made, inside each run (`lists.nested`).
     fn deliver(&self, value: &Data) -> Result<Data, NodeError> {
         let Some(spec) = self.slice.as_deref() else { return Ok(value.clone()) };
         let bad = |why: String| NodeError::new(NodeError::CONFIG, format!("input {:?}: {why}", self.to.port));
         let s = slice::parse(spec).map_err(bad)?;
         let Data::List(l) = value else { return Err(bad(format!("slice {spec:?} needs a list, but the wire carries a single value"))) };
-        let picks = s.picks(l.items.len()).map_err(bad)?;
-        if s.is_index() {
-            return picks.first().and_then(|&i| l.items.get(i)).cloned().ok_or_else(|| bad(format!("slice {spec:?} picks nothing")));
-        }
-        let names: Vec<String> = l.axes_or_plain().into_iter().map(|(name, _)| name).collect();
-        Ok(Data::List(crate::List {
-            items: picks.iter().filter_map(|&i| l.items.get(i).cloned()).collect(),
-            axes: vec![(format!("{}[{s}]", names.join("+")), picks.len())],
-            labels: picks.iter().filter_map(|&i| l.labels.get(i).cloned()).collect(),
-        }))
+        slice_level(l, &s, spec, 0).map_err(bad)
     }
+}
+
+/// Slice `l` at its innermost level: the level a nested list's source made (spec 7.6 rule 3).
+fn slice_level(l: &crate::List, s: &slice::Slice, spec: &str, depth: usize) -> Result<Data, String> {
+    if is_nested(l) {
+        if depth >= MAX_NESTING {
+            return Err(format!("lists nest more than {MAX_NESTING} deep"));
+        }
+        let items =
+            l.items.iter().map(|i| i.list().map_or_else(|| Ok(i.clone()), |inner| slice_level(inner, s, spec, depth + 1))).collect::<Result<Vec<_>, _>>()?;
+        return Ok(Data::List(crate::List { items, axes: l.axes.clone(), labels: l.labels.clone() }));
+    }
+    let picks = s.picks(l.items.len())?;
+    if s.is_index() {
+        return picks.first().and_then(|&i| l.items.get(i)).cloned().ok_or_else(|| format!("slice {spec:?} picks nothing"));
+    }
+    let names: Vec<String> = l.axes_or_plain().into_iter().map(|(name, _)| name).collect();
+    Ok(Data::List(crate::List {
+        items: picks.iter().filter_map(|&i| l.items.get(i).cloned()).collect(),
+        axes: vec![(format!("{}[{s}]", names.join("+")), picks.len())],
+        labels: picks.iter().filter_map(|&i| l.labels.get(i).cloned()).collect(),
+    }))
+}
+
+/// How deep lists may nest (spec 7.6 rule 2, assumed: the depth bindings already allow).
+pub const MAX_NESTING: usize = 8;
+
+/// Whether `l` is a list of lists that are levels (each carries an axis), not of tuples: what a
+/// step run once per item makes when each run makes a list (spec 7.6 rule 2).
+pub fn is_nested(l: &crate::List) -> bool {
+    !l.items.is_empty() && l.items.iter().all(|i| matches!(i, Data::List(x) if !x.axes.is_empty()))
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -660,9 +684,15 @@ fn mapping_plan(lists: &[(&str, &crate::List)]) -> Result<(Vec<(String, usize)>,
 }
 
 /// Run a node: once, or once per item when lists reach inputs that take one item (each run's
-/// progress scaled into the whole), its outputs then lists over the runs' axes.
-/// Run a node (once, or once per item of the lists it is mapped over), adding the time its
-/// calls spent getting ready ([`Cx::setup_took`]) to `setup`.
+/// progress scaled into the whole), its outputs then lists over the runs' axes, adding the time
+/// its calls spent getting ready ([`Cx::setup_took`]) to `setup`.
+///
+/// **Nested lists** (spec 7.6 rule 2, `lists.nested`): a run whose output is a list keeps it as
+/// one item, so a step run once per item that makes a list each run gives a list of lists. A
+/// level of such a list (a list item that carries an axis) is mapped over again, a run at a time;
+/// a list item without an axis is a tuple, passed whole. A port that takes a whole list fed a list
+/// of lists runs once per item of every outer level, the innermost list whole, unless the node
+/// takes nested lists whole (`flags.nested_input`).
 fn call(
     node: &dyn crate::Node,
     def: &NodeDef,
@@ -672,13 +702,40 @@ fn call(
     records: &mut dyn FnMut(StatusRecord),
     setup: &mut std::time::Duration,
 ) -> Result<Outputs, NodeError> {
+    call_level(node, def, id, inputs, cancel, records, setup, 0)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn call_level(
+    node: &dyn crate::Node,
+    def: &NodeDef,
+    id: &str,
+    inputs: &crate::Inputs,
+    cancel: &CancelToken,
+    records: &mut dyn FnMut(StatusRecord),
+    setup: &mut std::time::Duration,
+    depth: usize,
+) -> Result<Outputs, NodeError> {
     let whole = |k: &str| def.flags.input_list || def.inputs.iter().any(|p| p.name == k && p.list);
-    let lists: Vec<(&str, &crate::List)> = inputs.iter().filter(|(k, _)| !whole(k)).filter_map(|(k, v)| v.list().map(|l| (k.as_str(), l))).collect();
+    let maps = |k: &str, l: &crate::List| {
+        if whole(k) {
+            !def.flags.nested_input && is_nested(l)
+        } else {
+            // the top level maps any list, as before; a level inside an item maps only when it
+            // carries an axis (a list without one is a tuple, a value)
+            depth == 0 || !l.axes.is_empty()
+        }
+    };
+    let lists: Vec<(&str, &crate::List)> = inputs.iter().filter_map(|(k, v)| v.list().filter(|l| maps(k, l)).map(|l| (k.as_str(), l))).collect();
     if lists.is_empty() {
         let mut cx = Cx { node_id: id, cancel, records, last_progress: None, setup: std::time::Duration::ZERO };
         let out = node.run(inputs, &mut cx);
         *setup += cx.setup;
-        return out;
+        // a list a run makes is a level of its own: named `<node>.<port>`
+        return out.map(|o| name_lists(id, o));
+    }
+    if depth >= MAX_NESTING {
+        return Err(NodeError::new(NodeError::CONFIG, format!("lists nest more than {MAX_NESTING} deep")));
     }
     let (axes, picks) = mapping_plan(&lists)?;
     let n = picks.len();
@@ -725,15 +782,14 @@ fn call(
             rec.fraction = Some(0.0);
             scaled(rec);
         }
-        let mut cx = Cx { node_id: id, cancel, records: &mut scaled, last_progress: None, setup: std::time::Duration::ZERO };
-        let out = node.run(&item, &mut cx);
-        *setup += cx.setup;
+        // a run's own inputs may hold further levels: mapped again, one level down
+        let out = call_level(node, def, id, &item, cancel, &mut scaled, setup, depth + 1);
         let out =
             out.map_err(|e| if e.kind == NodeError::CANCELLED { e } else { NodeError { message: format!("item {} of {n}: {}", i + 1, e.message), ..e } })?;
         per_item.push(out);
     }
-    // An output of one item per run spans the runs' axes; one that is itself a list per run is
-    // a new, flat list (named as it leaves the node).
+    // Each output is a list over the runs' axes, an item a run: a run's single value, or the
+    // list it made (a level of its own, so the result is a list of lists).
     let mut names: Vec<String> = def.outputs.iter().map(|p| p.name.clone()).collect();
     for o in &per_item {
         names.extend(o.keys().filter(|k| !names.contains(k)).cloned().collect::<Vec<_>>());
@@ -744,27 +800,7 @@ fn call(
         if vals.len() != per_item.len() {
             continue;
         }
-        let list = if vals.iter().all(|v| v.list().is_none()) {
-            crate::List { items: vals.into_iter().cloned().collect(), axes: axes.clone(), labels: labels.clone() }
-        } else {
-            let mut flat = crate::List::default();
-            for (v, run) in vals.into_iter().zip(&labels) {
-                match v {
-                    Data::List(l) => {
-                        for (j, x) in l.items.iter().enumerate() {
-                            flat.items.push(x.clone());
-                            flat.labels.push([run.as_str(), l.label(j)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · "));
-                        }
-                    }
-                    one => {
-                        flat.items.push(one.clone());
-                        flat.labels.push(run.clone());
-                    }
-                }
-            }
-            flat
-        };
-        out.insert(name, Data::List(list));
+        out.insert(name, Data::List(crate::List { items: vals.into_iter().cloned().collect(), axes: axes.clone(), labels: labels.clone() }));
     }
     Ok(out)
 }

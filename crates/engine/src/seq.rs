@@ -12,6 +12,9 @@
 //!   make it) into rows, a header row first: what a spreadsheet's Write range takes. **Rows to
 //!   Table** goes back: rows (a spreadsheet's Read range), the first row the names, into a table.
 //!
+//! - **Flatten** joins a list of lists one level into one list (spec 7.6 rule 2, nested lists):
+//!   what a step run once per item that makes a list each run gave before lists nested.
+//!
 //! A tuple is a list inside a list ([`Data::List`]): Vary Range 2D's `xy` makes the same. Each
 //! tuple is labelled with what made its parts, so a sheet or Write Files can name it.
 
@@ -177,6 +180,47 @@ impl Node for Unzip {
     }
 }
 
+/// Flatten: a list of lists joined one level into one list (nested lists, assumed: one level).
+struct Flatten;
+
+impl Node for Flatten {
+    fn def(&self) -> NodeDef {
+        NodeDef {
+            id: "seq.flatten".into(),
+            display: "Flatten".into(),
+            category: category(),
+            description: "A list of lists joined one level into one list: a step run once per item that makes a list each run gives a list for each run; Flatten makes them one list, each item labelled with its run and its own label. A list whose items aren't lists passes as it is.".into(),
+            inputs: vec![any_in("list", false, "A list of lists")],
+            outputs: vec![any_out("list")],
+            flags: NodeFlags { input_list: true, nested_input: true, ..Default::default() },
+            ..Default::default()
+        }
+    }
+
+    fn run(&self, inputs: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
+        let l = inputs.get("list").and_then(Data::list).ok_or_else(|| config("list: wire a list of lists"))?;
+        let mut flat = List::default();
+        for (i, item) in l.items.iter().enumerate() {
+            match item {
+                Data::List(inner) => {
+                    for (j, x) in inner.items.iter().enumerate() {
+                        if flat.items.len() >= MAX_RUNS {
+                            return Err(config(format!("more than {MAX_RUNS} items")));
+                        }
+                        flat.items.push(x.clone());
+                        flat.labels.push([l.label(i), inner.label(j)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · "));
+                    }
+                }
+                one => {
+                    flat.items.push(one.clone());
+                    flat.labels.push(l.label(i).to_owned());
+                }
+            }
+        }
+        Ok(Outputs::from([("list".to_owned(), Data::List(flat))]))
+    }
+}
+
 /// Zip, Outer Join and Unzip.
 /// The most rows Table to Rows makes.
 pub const MAX_ROWS: usize = 100_000;
@@ -327,7 +371,7 @@ pub fn rows_table(v: &serde_json::Value, header: bool) -> Result<serde_json::Val
 }
 
 pub fn nodes() -> Vec<Box<dyn Node>> {
-    vec![Box::new(Combine { outer: false }), Box::new(Combine { outer: true }), Box::new(Unzip), Box::new(TableRows), Box::new(RowsTable)]
+    vec![Box::new(Combine { outer: false }), Box::new(Combine { outer: true }), Box::new(Unzip), Box::new(Flatten), Box::new(TableRows), Box::new(RowsTable)]
 }
 
 #[cfg(test)]

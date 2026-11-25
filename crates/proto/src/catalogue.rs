@@ -407,6 +407,11 @@ pub struct NodeFlags {
     /// A result node: its output is the graph's result (protocol 1: `vi.op.result`).
     #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
     pub result: bool,
+    /// Its inputs take a nested list whole, every level (Flatten): no level is mapped over
+    /// (spec 7.6 rule 2, `lists.nested`). Without it a whole-list port fed a list of lists runs
+    /// once per outer item.
+    #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
+    pub nested_input: bool,
 }
 
 /// A custom editor: `curves`, `mask` or a pack kind, on a port.

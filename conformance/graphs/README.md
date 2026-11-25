@@ -19,7 +19,7 @@ One JSON file a vector, named `NN-what-it-shows.json`:
 
 ## Running them
 
-`crates/coordinator/tests/vectors.rs` checks each vector's form (its kinds are in the engines' catalogues, its expectations name real outputs) and runs it through the coordinator on the text and array engines, in process. A vector that `needs` a capability is held to `expect` once every engine its nodes name lists that capability; until then it is held to `today`, and it fails if it already gives `expect`, so a marker is never left behind.
+`crates/coordinator/tests/vectors.rs` checks each vector's form (its kinds are in the engines' catalogues, its expectations name real outputs) and runs it through the coordinator on the text, array and test (`ports`) engines, in process. A vector that `needs` a capability is held to `expect` once every engine its nodes name lists that capability; until then it is held to `today`, and it fails if it already gives `expect`, so a marker is never left behind.
 
 ## The vectors
 
@@ -30,11 +30,10 @@ One JSON file a vector, named `NN-what-it-shows.json`:
 | `03a-range-slice-inside-each-run.json` | A range slice cuts each run's list | `lists.nested` |
 | `03b-step-slice-inside-each-run.json` | A stepped slice applies inside each run | `lists.nested` |
 | `04-whole-list-port-once-per-run.json` | A whole-list port runs once per outer item | `lists.nested` |
+| `05-item-and-whole-list-inputs.json` | A step with an item input and a whole-list input, both from one list: zipped on the outer axis (the test engine's Item and List) | `lists.nested` |
 | `06a-two-ranges-product.json` | Two ranges on different axes: every combination | `lists.nested` |
 | `06b-one-range-twice-zips.json` | One range into two inputs zips | `lists.nested` |
 | `07-three-levels.json` | A range after a nested list adds a level: 3 × 2 × 2 | `lists.nested` |
 | `08-across-an-engine-border.json` | Vector 2 across an engine border | `lists.nested` |
 | `09-one-item-a-run-unchanged.json` | A step making one item a run is unchanged | none |
 | `10-b164-range-slice-whole-list.json` | The wiring of B164: a range of 5, a step of 2 a run, the slice `1`, a step of 3 a run, a whole-list step | `lists.nested` |
-
-Note 27's vector 5 (one step with a per-item input and a whole-list input, both fed from the same range) is not here: no public engine has such a step yet.

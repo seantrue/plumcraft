@@ -461,3 +461,52 @@ fn select_load_and_write_files_name_each_file_by_what_made_it() {
     let r = go(json!({"s": {"kind": "file.select", "values": {"files": ""}}}), &[], &["s"]);
     assert!(r.nodes["s"].error.as_ref().is_some_and(|e| e.message.contains("no files chosen")));
 }
+
+/// Nested lists (spec 7.6 rule 2, `lists.nested`): a step mapped over a list that makes a list
+/// each run keeps each run's list; a slice applies inside each run; a whole-list port runs once
+/// per run; Flatten joins them back; a tuple is still a value.
+#[test]
+fn a_step_mapped_over_a_list_keeps_each_runs_list() {
+    // the second range runs once per value of the first, making [10, r] each run
+    let nodes = json!({
+        "r": {"kind": "vary.range", "values": {"start": 0.0, "stop": 2.0, "num": 3, "endpoint": true}},
+        "s": {"kind": "vary.range", "values": {"start": 10.0, "num": 2, "endpoint": true}},
+    });
+    let r = go(nodes.clone(), &[("r", "values", "s", "stop")], &["s"]);
+    assert!(r.ok, "{r:?}");
+    assert_eq!(out(&r, "s", "values"), json!([[10.0, 0.0], [10.0, 1.0], [10.0, 2.0]]));
+    // its axes cross the interface: the runs outside, the step's own inside
+    let Some(PortValue::List { items, axes }) = r.nodes["s"].outputs.get("values") else { panic!("a list") };
+    assert_eq!(axes, &vec![("r.values".to_owned(), 3)]);
+    assert!(items.iter().all(|i| matches!(i, PortValue::List { axes, .. } if axes == &vec![("s.values".to_owned(), 2)])), "{items:?}");
+    // an index slice takes one item of each run's list; a range slice cuts each
+    let mut n = nodes.clone();
+    n["m"] = json!({"kind": "t.mul", "values": {"b": 1}});
+    let r = go(n.clone(), &[("r", "values", "s", "stop"), ("s", "values", "m", "a|1")], &["m"]);
+    assert_eq!(out(&r, "m", "out"), json!([0.0, 1.0, 2.0]));
+    let r = go(n.clone(), &[("r", "values", "s", "stop"), ("s", "values", "m", "a|::2")], &["m"]);
+    assert_eq!(out(&r, "m", "out"), json!([[10.0], [10.0], [10.0]]), "each run's list cut, then mapped over both levels");
+    // a step mapped over a list of lists runs once per inner item and keeps both levels
+    let r = go(n.clone(), &[("r", "values", "s", "stop"), ("s", "values", "m", "a")], &["m"]);
+    assert_eq!(out(&r, "m", "out"), json!([[10.0, 0.0], [10.0, 1.0], [10.0, 2.0]]));
+    // a whole-list port runs once per run, each run's list whole
+    n["sum"] = json!({"kind": "t.sum"});
+    let r = go(n.clone(), &[("r", "values", "s", "stop"), ("s", "values", "sum", "xs")], &["sum"]);
+    assert_eq!(out(&r, "sum", "sum"), json!([10.0, 11.0, 12.0]));
+    // Flatten joins one level: today's flat list, labelled by run and item
+    n["f"] = json!({"kind": "seq.flatten"});
+    let r = go(n, &[("r", "values", "s", "stop"), ("s", "values", "f", "list")], &["f"]);
+    assert_eq!(out(&r, "f", "list"), json!([10.0, 0.0, 10.0, 1.0, 10.0, 2.0]));
+}
+
+/// A tuple (a list without an axis, Vary Range 2D's points) is a value, not a level: a step fed
+/// a list of points runs once per point, as before.
+#[test]
+fn a_tuple_is_a_value_not_a_level() {
+    let nodes = json!({"p": {"kind": "vary.range2d", "values": {"start_x": 0.0, "stop_x": 1.0, "start_y": 0.0, "stop_y": 1.0, "num": 2}}, "f": {"kind": "seq.flatten"}});
+    let r = go(nodes, &[("p", "xy", "f", "list")], &["f", "p"]);
+    assert!(r.ok, "{r:?}");
+    assert_eq!(out(&r, "p", "xy"), json!([[0.0, 0.0], [1.0, 1.0]]));
+    // the points list isn't nested (its tuples carry no axis), so Flatten joins the tuples once
+    assert_eq!(out(&r, "f", "list"), json!([0.0, 0.0, 1.0, 1.0]));
+}

@@ -175,7 +175,10 @@ impl Plane<'_> {
             Data::Json(v) if media == Media::Table && json_len(v) > self.max_inline => as_blob(self.table_ref(v), "TABLE"),
             Data::Json(v) if media == Media::Tree && json_len(v) > self.max_inline => as_blob(self.json_ref(v), "JSON"),
             Data::Json(v) => PortValue::Json { value: v.clone() },
-            Data::List(l) => PortValue::List { items: l.items.iter().map(|i| self.port_value(media, i)).collect(), axes: Vec::new() },
+            Data::List(l) => PortValue::List {
+                items: l.items.iter().map(|i| self.port_value(media, i)).collect(),
+                axes: l.axes.iter().map(|(n, k)| (n.clone(), *k as u64)).collect(),
+            },
         }
     }
 }

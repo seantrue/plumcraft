@@ -65,8 +65,14 @@ fn read(store: Option<&Store>, trusted: &[String], port: &str, v: &PortValue, de
     }
     match v {
         PortValue::Json { value } => Ok(Data::Json(value.clone())),
-        PortValue::List { items, .. } => {
-            Ok(Data::List(List::new(items.iter().map(|i| read(store, trusted, port, i, depth + 1, n)).collect::<Result<_, _>>()?)))
+        PortValue::List { items, axes } => {
+            let mut l = List::new(items.iter().map(|i| read(store, trusted, port, i, depth + 1, n)).collect::<Result<_, _>>()?);
+            // its axes, when they fit it (spec 4.5): a nested list keeps its levels across a border
+            let given: Vec<(String, usize)> = axes.iter().filter_map(|(a, k)| Some((a.clone(), usize::try_from(*k).ok()?))).collect();
+            if !given.is_empty() && given.len() == axes.len() && given.iter().try_fold(1usize, |t, (_, k)| t.checked_mul(*k)) == Some(l.items.len()) {
+                l.axes = given;
+            }
+            Ok(Data::List(l))
         }
         PortValue::Blob { data } => blob(store, trusted, port, data),
         PortValue::Opaque { ty, .. } => Err(NodeError::new(NodeError::CONFIG, format!("input {port:?}: a {ty} value stays in the engine that made it"))),

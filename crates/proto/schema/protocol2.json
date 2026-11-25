@@ -1787,6 +1787,10 @@
           "default": null,
           "description": "`true`, `false` or `\"unit\"`: whether results keep colour-space tags."
         },
+        "nested_input": {
+          "description": "Its inputs take a nested list whole, every level (Flatten): no level is mapped over\n(spec 7.6 rule 2, `lists.nested`). Without it a whole-list port fed a list of lists runs\nonce per outer item.",
+          "type": "boolean"
+        },
         "output_node": {
           "default": false,
           "type": "boolean"

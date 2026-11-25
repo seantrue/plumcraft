@@ -1,8 +1,8 @@
 //! The shared graph vectors (`conformance/graphs/`, `docs/interface.md` 7.6): each a graph of
 //! public building blocks and the item structure expected at named outputs. Every vector is
 //! checked for form (it parses, its kinds are in the engines' catalogues, its expectations name
-//! real outputs and are well formed), then run through the coordinator on the text and array
-//! engines in process.
+//! real outputs and are well formed), then run through the coordinator on the text, array and test
+//! (`ports`) engines in process.
 //!
 //! A vector that `needs` a capability (today only `lists.nested`, nested lists, research note 27)
 //! is held to its `expect` once every engine it runs on lists that capability. Until then it is
@@ -85,7 +85,7 @@ type Make = fn() -> plumcraft_engine::Engine;
 
 /// The engines the vectors run on, by id.
 fn engines() -> Vec<(&'static str, Make)> {
-    vec![("text", plumcraft_text::engine as Make), ("array", plumcraft_array::engine)]
+    vec![("text", plumcraft_text::engine as Make), ("array", plumcraft_array::engine), ("ports", plumcraft_ports::engine)]
 }
 
 fn coordinator() -> Coordinator {

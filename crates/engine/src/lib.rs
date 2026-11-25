@@ -302,7 +302,9 @@ macro_rules! code_digest {
 /// Persisted records outlive the process, so a salt without the code would serve a fixed
 /// node the result of the old code.
 pub fn salt(prefix: &str, code_digest: &str) -> String {
-    format!("{prefix}+code:{code_digest}+sdk:{}", sdk_digest())
+    // the list rule a result was made under is part of what it is: nested lists (spec 7.6
+    // rule 2, `lists.nested`) change what a step mapped over a list gives
+    format!("{prefix}+code:{code_digest}+sdk:{}+lists:nested", sdk_digest())
 }
 
 /// A node's input values by port name, after wires, widget values and defaults are resolved.
@@ -473,7 +475,7 @@ impl Engine {
             store: Some(plumcraft_store::Store::new(plumcraft_store::default_root())),
             wire_types: Vec::new(),
             nodes: BTreeMap::new(),
-            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json"]),
+            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json", "lists.nested"]),
             limits: Limits::default(),
             work_root: None,
             persist_ms: persist_ms_from_env(),
