@@ -593,7 +593,11 @@ fn run_item_takes_a_path_inside_a_run_and_keeps_it() {
     let u = add(&mut s, "text.upper");
     s.execute("run.watch", &json!({"node": u})).unwrap();
     // the display a run brings (each step asks for another, and the next run brings it)
-    let shown = |s: &mut Session| s.run.watched[0] = Some(Display { items: 3, levels: vec![3, 2], path: vec![0], ..Default::default() });
+    let shown = |s: &mut Session| {
+        let mut d = Display::default();
+        (d.items, d.levels, d.path) = (3, vec![3, 2], vec![0]);
+        s.run.watched[0] = Some(d);
+    };
     shown(&mut s);
     let r = s.execute("run.item", &json!({"index": 1, "path": [1]})).unwrap();
     assert_eq!((r["index"].clone(), r["path"].clone()), (json!(1), json!([1])));

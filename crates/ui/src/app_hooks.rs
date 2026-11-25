@@ -69,7 +69,8 @@ impl AppShown {
 /// A Watched panel display of an application's value. `media` is the watched port's wire type's
 /// (none: worked out from the value).
 pub fn display_of(v: &PortValue, w: &WatchRequest, ty: String, media: Option<Media>) -> Display {
-    let mut d = Display { ty, node: w.node.clone(), port: w.port.clone(), items: 1, ..Default::default() };
+    let mut d = Display::new(w.node.clone(), w.port.clone());
+    (d.ty, d.items) = (ty, 1);
     let item = match v {
         PortValue::List { items, .. } => {
             d.items = items.len() as u64;
@@ -198,7 +199,9 @@ mod tests {
     use serde_json::json;
 
     fn watch(index: i64) -> WatchRequest {
-        WatchRequest { node: "n".into(), port: "out".into(), index, ..Default::default() }
+        let mut w = WatchRequest::new("n", "out");
+        w.index = index;
+        w
     }
 
     #[test]
@@ -207,12 +210,12 @@ mod tests {
         assert_eq!((d.media, d.value.clone(), d.items), (Media::Scalar, Some(json!(42)), 1));
         let d = display_of(&PortValue::Json { value: json!("hello") }, &watch(0), "TEXT".into(), Some(Media::Text));
         assert!(matches!(&d.renditions[..], [Rendition::Excerpt { text, .. }] if text == "hello"));
-        let list = PortValue::List { items: vec![PortValue::Json { value: json!(1) }, PortValue::Json { value: json!(2) }], axes: Vec::new() };
+        let list = PortValue::list(vec![PortValue::Json { value: json!(1) }, PortValue::Json { value: json!(2) }]);
         let d = display_of(&list, &watch(-1), String::new(), None);
         assert_eq!((d.items, d.index, d.value), (2, 1, Some(json!(2))));
         assert!(d.summary.contains("item 2 of 2"));
         // hostile: an empty list, an index far out
-        let d = display_of(&PortValue::List { items: vec![], axes: Vec::new() }, &watch(99), String::new(), None);
+        let d = display_of(&PortValue::list(vec![]), &watch(99), String::new(), None);
         assert_eq!(d.items, 0);
         let d = display_of(&list, &watch(i64::MIN + 1), String::new(), None);
         assert_eq!(d.index, 0);

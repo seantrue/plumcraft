@@ -176,13 +176,15 @@ pub enum PortValue {
         #[serde(rename = "ref")]
         data: DataRef,
     },
+    /// Built outside this crate with [`PortValue::list`] or [`PortValue::list_with_axes`]: fields
+    /// may be added (a pattern outside the crate ends with `..`).
+    #[non_exhaustive]
     List {
         #[serde(default, deserialize_with = "lenient_vec")]
         items: Vec<PortValue>,
         /// The list's axes, outermost first: `[[name, length], …]` (capability `lists.nested`,
         /// spec 4.5 and 7.6 rule 2). Absent or empty: one anonymous axis. Malformed entries are
         /// dropped; axes whose lengths don't multiply to the item count are to be read as absent.
-        /// Carried, not yet acted on: no executor reads or writes it (nested lists, slice 1).
         #[serde(default, deserialize_with = "lenient_vec", skip_serializing_if = "Vec::is_empty")]
         axes: Vec<(String, u64)>,
     },
@@ -202,6 +204,18 @@ pub enum PortValue {
         #[serde(default, deserialize_with = "crate::de::lenient_opt", skip_serializing_if = "Option::is_none")]
         held: Option<String>,
     },
+}
+
+impl PortValue {
+    /// A list of `items` with one anonymous axis.
+    pub fn list(items: Vec<PortValue>) -> PortValue {
+        PortValue::List { items, axes: Vec::new() }
+    }
+
+    /// A list of `items` over `axes` (`[(name, length)]`, outermost first; nested lists).
+    pub fn list_with_axes(items: Vec<PortValue>, axes: Vec<(String, u64)>) -> PortValue {
+        PortValue::List { items, axes }
+    }
 }
 
 #[cfg(test)]

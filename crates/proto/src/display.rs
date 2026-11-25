@@ -53,6 +53,9 @@ impl Want {
 pub const MAX_PATH: usize = 8;
 
 /// One value the UI wants to see while (or after) a run (spec 10.4; protocol 1 `inspect`).
+/// Fields may be added: outside this crate, start from [`WatchRequest::new`] or `default()` and
+/// set the fields.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default)]
@@ -79,6 +82,13 @@ pub struct WatchRequest {
     pub px: u32,
 }
 
+impl WatchRequest {
+    /// A watch of `node`'s `port`, its first item, at the default size.
+    pub fn new(node: impl Into<String>, port: impl Into<String>) -> Self {
+        WatchRequest { node: node.into(), port: port.into(), ..Default::default() }
+    }
+}
+
 impl Default for WatchRequest {
     fn default() -> Self {
         WatchRequest { node: String::new(), port: String::new(), index: 0, path: Vec::new(), sheet: false, view: View::default(), want: Vec::new(), px: 1024 }
@@ -90,7 +100,9 @@ impl Default for WatchRequest {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Rendition {
-    /// (h, w, 4) `u1`.
+    /// (h, w, 4) `u1`. Built outside this crate with [`Rendition::rgba8`] and its `with_`
+    /// methods: fields may be added (a pattern outside the crate ends with `..`).
+    #[non_exhaustive]
     Rgba8 {
         #[serde(rename = "ref")]
         data: DataRef,
@@ -164,6 +176,48 @@ pub enum Rendition {
     },
 }
 
+impl Rendition {
+    /// An `rgba8` rendition of `data`, `w` × `h`: no role, caption, summary or list counts until
+    /// the `with_` methods give them.
+    pub fn rgba8(data: DataRef, w: u32, h: u32) -> Rendition {
+        Rendition::Rgba8 { data, w, h, role: String::new(), caption: String::new(), summary: String::new(), items: 0, levels: Vec::new() }
+    }
+
+    /// An `rgba8` rendition's role (`view`, `thumb`); other kinds unchanged.
+    pub fn with_role(mut self, to: impl Into<String>) -> Self {
+        if let Rendition::Rgba8 { role, .. } = &mut self {
+            *role = to.into();
+        }
+        self
+    }
+
+    /// An `rgba8` rendition's caption (the picture's own name); other kinds unchanged.
+    pub fn with_caption(mut self, to: impl Into<String>) -> Self {
+        if let Rendition::Rgba8 { caption, .. } = &mut self {
+            *caption = to.into();
+        }
+        self
+    }
+
+    /// An `rgba8` rendition's one-line summary; other kinds unchanged.
+    pub fn with_summary(mut self, to: impl Into<String>) -> Self {
+        if let Rendition::Rgba8 { summary, .. } = &mut self {
+            *summary = to.into();
+        }
+        self
+    }
+
+    /// An `rgba8` rendition's list length and, for a list of lists, each level's count (nested
+    /// lists); other kinds unchanged.
+    pub fn with_items(mut self, n: u64, counts: Vec<u64>) -> Self {
+        if let Rendition::Rgba8 { items, levels, .. } = &mut self {
+            *items = n;
+            *levels = counts;
+        }
+        self
+    }
+}
+
 fn is_zero(n: &u64) -> bool {
     *n == 0
 }
@@ -229,7 +283,9 @@ pub struct LiveMark {
     pub seq: u64,
 }
 
-/// What the viewer shows for one watched value.
+/// What the viewer shows for one watched value. Fields may be added: outside this crate, start
+/// from [`Display::new`] or `default()` and set the fields.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default)]
@@ -277,6 +333,13 @@ pub struct Display {
     pub live: LiveMark,
     #[serde(deserialize_with = "lenient_opt")]
     pub error: Option<NodeError>,
+}
+
+impl Display {
+    /// What `node`'s `port` shows: everything else empty until set.
+    pub fn new(node: impl Into<String>, port: impl Into<String>) -> Self {
+        Display { node: node.into(), port: port.into(), ..Default::default() }
+    }
 }
 
 #[cfg(test)]

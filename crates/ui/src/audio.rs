@@ -558,7 +558,11 @@ mod tests {
         let ctx = egui::Context::default();
         let tokens = crate::theme::DEFAULT;
         let mut view = AudioView::default();
-        let mut d = Display { media: plumcraft_proto::catalogue::Media::Audio, ..Default::default() };
+        let mut d = {
+            let mut x = Display::default();
+            x.media = plumcraft_proto::catalogue::Media::Audio;
+            x
+        };
         d.renditions.push(Rendition::Peaks {
             data: DataRef { handle: None, meta: BlobMeta::default(), at: vec![Locator::Inline { b64: "AAAA".into() }] },
             bins: 9,

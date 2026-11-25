@@ -537,7 +537,11 @@ mod tests {
     /// An array published by path has no handle: two of them are two values, not one.
     #[test]
     fn values_without_handles_are_told_apart_by_where_they_are() {
-        let at = |path: &str| Display { full: Some(serde_json::from_value(json!({"at": [{"kind": "path", "path": path}]})).unwrap()), ..Default::default() };
+        let at = |path: &str| {
+            let mut d = Display::default();
+            d.full = Some(serde_json::from_value(json!({"at": [{"kind": "path", "path": path}]})).unwrap());
+            d
+        };
         let read = |n: u8| Arc::new(Blob { dtype: "|u1".into(), shape: vec![1], bytes: vec![n].into() });
         let mut w = Watched::default();
         w.update(Some(&at("/a.npy")), &|_| Some(read(1)));
@@ -547,9 +551,10 @@ mod tests {
 
     #[test]
     fn a_gone_value_reruns_once() {
-        let d = Display {
-            full: Some(serde_json::from_value(json!({"handle": "md5:raw:9e107d9d372bb6826bd81d3542a419d6", "at": []})).unwrap()),
-            ..Default::default()
+        let d = {
+            let mut x = Display::default();
+            x.full = Some(serde_json::from_value(json!({"handle": "md5:raw:9e107d9d372bb6826bd81d3542a419d6", "at": []})).unwrap());
+            x
         };
         let mut w = Watched::default();
         assert!(w.update(Some(&d), &|_| None), "gone: rerun");

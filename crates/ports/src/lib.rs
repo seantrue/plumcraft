@@ -184,7 +184,7 @@ struct ResultNode;
 impl Node for ResultNode {
     fn def(&self) -> NodeDef {
         let mut d = def("ports.result", "Result", vec![socket("text", TEXT)], vec![port("text", TEXT)]);
-        d.flags = NodeFlags { result: true, ..Default::default() };
+        d.flags = NodeFlags::default().with_result(true);
         // Save Result (F19): its own list, the engine's format first, then the SDK's text
         d.save_formats = Some(vec![QUOTED.into(), "txt".into()]);
         d
@@ -259,7 +259,7 @@ impl Node for Ink {
         width.param_ref = Some(plumcraft_proto::catalogue::ParamRef { group: "ink".into(), name: "width".into() });
         let tuning = Port { optional: true, ..socket("tuning", TUNE) };
         let mut d = def("ports.ink", "Ink", vec![tuning, width], vec![port("tuning", TUNE), port("level", "FLOAT")]);
-        d.flags = NodeFlags { bundle_port: Some("tuning".into()), ..Default::default() };
+        d.flags = NodeFlags::default().with_bundle_port(Some("tuning".into()));
         d
     }
     fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
@@ -276,7 +276,7 @@ struct Strip;
 impl Node for Strip {
     fn def(&self) -> NodeDef {
         let mut d = def("ports.strip", "Strip", vec![widget("level", "FLOAT", json!(0.5))], vec![port("strip", core_types::ARRAY)]);
-        d.flags = NodeFlags { result: true, ..Default::default() };
+        d.flags = NodeFlags::default().with_result(true);
         d
     }
     fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {

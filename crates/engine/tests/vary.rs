@@ -476,7 +476,7 @@ fn a_step_mapped_over_a_list_keeps_each_runs_list() {
     assert!(r.ok, "{r:?}");
     assert_eq!(out(&r, "s", "values"), json!([[10.0, 0.0], [10.0, 1.0], [10.0, 2.0]]));
     // its axes cross the interface: the runs outside, the step's own inside
-    let Some(PortValue::List { items, axes }) = r.nodes["s"].outputs.get("values") else { panic!("a list") };
+    let Some(PortValue::List { items, axes, .. }) = r.nodes["s"].outputs.get("values") else { panic!("a list") };
     assert_eq!(axes, &vec![("r.values".to_owned(), 3)]);
     assert!(items.iter().all(|i| matches!(i, PortValue::List { axes, .. } if axes == &vec![("s.values".to_owned(), 2)])), "{items:?}");
     // an index slice takes one item of each run's list; a range slice cuts each

@@ -564,11 +564,10 @@ pub fn run_values(
         .iter()
         .zip(watch)
         .map(|(w, d)| {
-            d.unwrap_or_else(|| Display {
-                node: w.node.clone(),
-                port: w.port.clone(),
-                error: Some(NodeError::new(NodeError::OP, "no value")),
-                ..Default::default()
+            d.unwrap_or_else(|| {
+                let mut d = Display::new(w.node.clone(), w.port.clone());
+                d.error = Some(NodeError::new(NodeError::OP, "no value"));
+                d
             })
         })
         .collect();
@@ -706,8 +705,7 @@ fn call(
     call_level(node, def, id, regrouped.as_ref().unwrap_or(inputs), cancel, records, setup, 0)
 }
 
-/// Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2,
-/// assumed, to be confirmed): a list over a sweep the others share and one of its own (a product
+/// Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2): a list over a sweep the others share and one of its own (a product
 /// made upstream, such as a step run once per scale and once per value of a range) becomes a list
 /// over its own sweeps of lists over the shared ones, so the node runs once per item of its own
 /// sweeps, each with the shared sweep whole, as a list of lists does. A list whose sweeps no
@@ -1277,7 +1275,8 @@ fn display(engine: &Engine, def: &NodeDef, id: &str, w: &WatchRequest, outputs: 
     {
         media = value_media(v.list().and_then(|l| l.items.first()).unwrap_or(v));
     }
-    let mut d = Display { media, ty: ty.clone(), node: id.into(), port: w.port.clone(), items: 1, view: w.view.clone(), ..Default::default() };
+    let mut d = Display::new(id, w.port.clone());
+    (d.media, d.ty, d.items, d.view) = (media, ty.clone(), 1, w.view.clone());
     match outputs.get(&w.port) {
         None => d.error = Some(NodeError::new(NodeError::OP, format!("no output {:?}", w.port))),
         Some(Data::List(l)) => {
@@ -1287,7 +1286,8 @@ fn display(engine: &Engine, def: &NodeDef, id: &str, w: &WatchRequest, outputs: 
             let at = usize::try_from(at.max(0)).unwrap_or(0).min(n.saturating_sub(1));
             d.index = at as i64;
             for (j, item) in l.items.iter().take(MAX_SHEET).enumerate() {
-                let mut cell = Display { media, ..Default::default() };
+                let mut cell = Display::default();
+                cell.media = media;
                 summarize(item, media, &mut cell);
                 let thumb = if w.sheet { thumb(engine, &ty, item, plane) } else { None };
                 d.sheet.push(plumcraft_proto::display::SheetCell { label: l.label(j).to_owned(), summary: cell.summary, thumb });

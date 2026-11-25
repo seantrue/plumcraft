@@ -105,7 +105,7 @@ impl Node for Combine {
                 any_in("c", true, "A third sequence (optional)"),
             ],
             outputs: vec![any_out("tuples")],
-            flags: NodeFlags { input_list: true, ..Default::default() },
+            flags: NodeFlags::default().with_input_list(true),
             ..Default::default()
         }
     }
@@ -151,7 +151,7 @@ impl Node for Unzip {
             description: "A list of tuples (from Zip, Outer Join or Vary Range 2D's xy) split into its parts: a, b and c are lists that zip downstream, so the settings they feed vary together. A single tuple splits into single values.".into(),
             inputs: vec![any_in("tuples", false, "A list of tuples, or one tuple")],
             outputs: PARTS.iter().map(|p| any_out(p)).collect(),
-            flags: NodeFlags { input_list: true, ..Default::default() },
+            flags: NodeFlags::default().with_input_list(true),
             ..Default::default()
         }
     }
@@ -192,7 +192,7 @@ impl Node for Flatten {
             description: "A list of lists joined one level into one list: a step run once per item that makes a list each run gives a list for each run; Flatten makes them one list, each item labelled with its run and its own label. A list whose items aren't lists passes as it is.".into(),
             inputs: vec![any_in("list", false, "A list of lists")],
             outputs: vec![any_out("list")],
-            flags: NodeFlags { input_list: true, nested_input: true, ..Default::default() },
+            flags: NodeFlags::default().with_input_list(true).with_nested_input(true),
             ..Default::default()
         }
     }

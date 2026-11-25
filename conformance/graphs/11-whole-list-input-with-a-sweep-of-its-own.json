@@ -1,6 +1,6 @@
 {
  "name": "a whole-list input with a sweep of its own runs once per item of it (the report's wiring)",
- "about": "The report's graph as it is: a range of 5 into a step that makes 2 a run (s), the slice 1 taking one of each run's, a step run once per scale of 3 and once per run (m, Join's slots: a product of 15 over two sweeps, as the report's mask step), and a step that takes the masks and the scales whole (z, Zip, as the report's combine step). The masks bring the runs' sweep, which the scales don't: nested, Zip runs 5 times, each with its 3 masks and the 3 scales (assumed, to be confirmed). Today: the slice takes one item of the flat 10, so m runs 3 times and Zip once.",
+ "about": "The report's graph as it is: a range of 5 into a step that makes 2 a run (s), the slice 1 taking one of each run's, a step run once per scale of 3 and once per run (m, Join's slots: a product of 15 over two sweeps, as the report's mask step), and a step that takes the masks and the scales whole (z, Zip, as the report's combine step). The masks bring the runs' sweep, which the scales don't: nested, Zip runs 5 times, each with its 3 masks and the 3 scales. Today: the slice takes one item of the flat 10, so m runs 3 times and Zip once.",
  "needs": [
   "lists.nested"
  ],

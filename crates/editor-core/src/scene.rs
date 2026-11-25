@@ -549,6 +549,8 @@ pub enum Preview {
     /// A picture, by its value reference (`media.get`). `items` above 1: the value is a list (of
     /// named pictures, when the engine names them) and this is one of them, `caption` its name.
     #[serde(rename_all = "camelCase")]
+    /// Fields may be added: outside this crate a pattern ends with `..` (the core builds it).
+    #[non_exhaustive]
     Rgba8 {
         handle: Value,
         w: u32,

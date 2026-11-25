@@ -531,7 +531,7 @@ pub(crate) fn open(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(SessionError::File(format!("{node}.{} has no value yet, and the engine is not connected", t.port)));
     }
     // Watch it and run: the memo answers the rest at once; poll_doc_open opens it on arrival.
-    let watch = vec![WatchRequest { node: node.clone(), port: t.port.clone(), ..Default::default() }];
+    let watch = vec![WatchRequest::new(node.clone(), t.port.clone())];
     let base = crate::paths::base_folder(s.path());
     let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, Vec::new(), watch, std::time::Instant::now());
@@ -642,7 +642,11 @@ mod tests {
         let watch = req
             .watch
             .iter()
-            .map(|w| Display { node: w.node.clone(), port: w.port.clone(), media: Media::Doc, full: Some(d.clone()), ..Default::default() })
+            .map(|w| {
+                let mut x = Display::new(w.node.clone(), w.port.clone());
+                (x.media, x.full) = (Media::Doc, Some(d.clone()));
+                x
+            })
             .collect();
         let reply = RunReply { run_id: req.run_id.clone(), generation: req.generation, ok: true, nodes, watch, ..Default::default() };
         assert!(s.run.apply_reply(&reply, Instant::now()));

@@ -377,7 +377,7 @@ impl Node for Write {
                 Port { name: "overwrite".into(), ty: "BOOL".into(), default: json!(false), tooltip: Some("Replace files that are already there".into()), ..Default::default() },
             ],
             outputs: vec![files_out()],
-            flags: NodeFlags { input_list: true, output_node: true, ..Default::default() },
+            flags: NodeFlags::default().with_input_list(true).with_output_node(true),
             memo: MemoSpec { scope: MemoScope::None, ..Default::default() },
             ..Default::default()
         }

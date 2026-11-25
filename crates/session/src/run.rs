@@ -166,7 +166,9 @@ pub enum Outgoing {
     Cancel(String),
 }
 
-/// The run state of a session.
+/// The run state of a session. Fields may be added: outside this crate, start from
+/// `RunState::default()` and set the fields.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default)]
 pub struct RunState {
     /// The engine keeps each run's list apart when a step runs once per item (capability
@@ -1281,7 +1283,7 @@ mod queued_tests {
 
     #[test]
     fn a_watched_node_joins_the_run() {
-        let watch = vec![WatchRequest { node: "c".to_owned(), port: "out".to_owned(), ..Default::default() }];
+        let watch = vec![WatchRequest::new("c".to_owned(), "out".to_owned())];
         let got = needed(&graph(), &["b".to_owned()], &watch, &BTreeSet::new());
         assert_eq!(got, ["a", "b", "c"].map(str::to_owned).into());
     }

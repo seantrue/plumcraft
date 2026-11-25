@@ -541,10 +541,20 @@ mod tests {
     #[test]
     fn json_shows_as_yaml_first_with_the_tree_beside_it() {
         use plumcraft_proto::catalogue::Media;
-        let d = plumcraft_proto::display::Display { media: Media::Tree, value: Some(json!({"name": "corgi", "toys": ["ball"]})), ..Default::default() };
+        let d = {
+            let mut x = plumcraft_proto::display::Display::default();
+            x.media = Media::Tree;
+            x.value = Some(json!({"name": "corgi", "toys": ["ball"]}));
+            x
+        };
         let kinds: Vec<&str> = super::super::kinds_for(&d).iter().map(|k| k.id).collect();
         assert_eq!(kinds[..2], ["yaml", "tree"], "{kinds:?}");
-        let rows = plumcraft_proto::display::Display { media: Media::Tree, value: Some(json!([["a", "b"], [1, 2]])), ..Default::default() };
+        let rows = {
+            let mut x = plumcraft_proto::display::Display::default();
+            x.media = Media::Tree;
+            x.value = Some(json!([["a", "b"], [1, 2]]));
+            x
+        };
         assert_eq!(super::super::kinds_for(&rows)[0].id, "table.grid", "rows are a table");
         fn input(display: &plumcraft_proto::display::Display) -> ViewInput<'_> {
             ViewInput {
@@ -563,7 +573,11 @@ mod tests {
         let mut view = Yaml::default();
         view.sync(&egui::Context::default(), &input(&d));
         assert_eq!(view.lines, ["name: corgi", "toys:", "  - ball"]);
-        let changed = plumcraft_proto::display::Display { value: Some(json!({"name": "heron"})), ..d.clone() };
+        let changed = {
+            let mut x = d.clone();
+            x.value = Some(json!({"name": "heron"}));
+            x
+        };
         view.sync(&egui::Context::default(), &input(&changed));
         assert_eq!(view.lines, ["name: heron"], "a new value with the same summary still redraws");
     }

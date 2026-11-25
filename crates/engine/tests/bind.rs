@@ -285,7 +285,7 @@ fn bad_bindings_are_node_errors() {
     let opaque = PortValue::Opaque { ty: "STYLE".into(), summary: "s".into(), held: None };
     let mut deep = PortValue::Json { value: json!(0) };
     for _ in 0..20 {
-        deep = PortValue::List { items: vec![deep], axes: Vec::new() };
+        deep = PortValue::list(vec![deep]);
     }
     for (v, kind) in [(gone, NodeError::MISSING_SOURCE), (no_handle, NodeError::CONFIG), (opaque, NodeError::CONFIG), (deep, NodeError::CONFIG)] {
         let r = a.run(echo_graph(), bound(&v), &["e"], 1 << 20);

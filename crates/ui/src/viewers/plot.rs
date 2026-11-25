@@ -230,7 +230,11 @@ mod tests {
         let display = |f: Form| {
             let mut r = DataRef::default();
             r.meta.form = f;
-            Display { full: Some(r), ..Default::default() }
+            {
+                let mut x = Display::default();
+                x.full = Some(r);
+                x
+            }
         };
         assert!(accepts(&display(form(true, vec![9, 2], Vec::new()))));
         assert!(!accepts(&display(form(false, vec![9, 2], Vec::new()))), "a 9 × 2 picture");

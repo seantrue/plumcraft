@@ -130,7 +130,11 @@ fn target(s: &Session, p: &Value) -> Result<WatchRequest> {
         None | Some(Value::Null) => 0,
         Some(v) => v.as_i64().ok_or_else(|| SessionError::Params("\"index\" must be a whole number".into()))?,
     };
-    Ok(WatchRequest { node: node.0, port, index, ..Default::default() })
+    Ok({
+        let mut x = WatchRequest::new(node.0, port);
+        x.index = index;
+        x
+    })
 }
 
 fn viewer_param(p: &Value) -> Result<Option<String>> {

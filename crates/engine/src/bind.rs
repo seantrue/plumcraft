@@ -65,7 +65,7 @@ fn read(store: Option<&Store>, trusted: &[String], port: &str, v: &PortValue, de
     }
     match v {
         PortValue::Json { value } => Ok(Data::Json(value.clone())),
-        PortValue::List { items, axes } => {
+        PortValue::List { items, axes, .. } => {
             let mut l = List::new(items.iter().map(|i| read(store, trusted, port, i, depth + 1, n)).collect::<Result<_, _>>()?);
             // its axes, when they fit it (spec 4.5): a nested list keeps its levels across a border
             let given: Vec<(String, usize)> = axes.iter().filter_map(|(a, k)| Some((a.clone(), usize::try_from(*k).ok()?))).collect();

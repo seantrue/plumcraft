@@ -88,7 +88,9 @@ fn watch(s: &mut Session, p: &Value) -> Result<Value> {
         None | Some(Value::Null) => 0,
         Some(v) => v.as_i64().ok_or_else(|| SessionError::Params("\"index\" must be a whole number".into()))?,
     };
-    s.run.set_watch(WatchRole::Panel, Some(WatchRequest { node: node.0.clone(), port: port.clone(), index, ..Default::default() }));
+    let mut w = WatchRequest::new(node.0.clone(), port.clone());
+    w.index = index;
+    s.run.set_watch(WatchRole::Panel, Some(w));
     Ok(json!({"node": node, "port": port, "index": index}))
 }
 

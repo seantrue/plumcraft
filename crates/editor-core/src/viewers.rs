@@ -501,7 +501,9 @@ mod tests {
     use plumcraft_store::Blob;
 
     fn display(media: Media, value: Option<Value>) -> Display {
-        Display { media, value, ..Default::default() }
+        let mut d = Display::default();
+        (d.media, d.value) = (media, value);
+        d
     }
 
     #[test]
@@ -612,7 +614,14 @@ mod tests {
         let mut st = ViewerState::default();
         let x = popout_extra(Some(&d), &st);
         assert!(x.get("path").is_none() && x.get("levels").is_none(), "a list that isn't nested says nothing of levels");
-        let nested = Display { items: 3, index: 1, path: vec![1], levels: vec![3, 2], ..d.clone() };
+        let nested = {
+            let mut x = d.clone();
+            x.items = 3;
+            x.index = 1;
+            x.path = vec![1];
+            x.levels = vec![3, 2];
+            x
+        };
         let y = popout_extra(Some(&nested), &st);
         assert_eq!((&y["index"], &y["path"], &y["levels"]), (&json!(1), &json!([1]), &json!([3, 2])));
         let s = &x["stats"];

@@ -24,7 +24,7 @@ fn all_outputs_viewable(name: &str, engine: fn() -> Engine, demo: &str) -> BTree
     for (id, n) in graph["nodes"].as_object().unwrap() {
         let Some(def) = schema.node(n["kind"].as_str().unwrap()) else { continue };
         for p in &def.outputs {
-            req.watch.push(WatchRequest { node: id.clone(), port: p.name.clone(), ..Default::default() });
+            req.watch.push(WatchRequest::new(id.clone(), p.name.clone()));
             types.push(p.ty.clone());
         }
     }
@@ -56,8 +56,18 @@ fn bytes_with_no_picture_are_not_viewable() {
     use plumcraft_proto::data::{BlobMeta, DataRef};
     use plumcraft_proto::display::Display;
     let full = Some(DataRef { handle: None, meta: BlobMeta::default(), at: Vec::new() });
-    assert!(!viewable(&Display { media: Media::Bytes, full, ..Default::default() }));
-    assert!(viewable(&Display { media: Media::Scalar, value: Some(1.into()), ..Default::default() }));
+    assert!(!viewable(&{
+        let mut x = Display::default();
+        x.media = Media::Bytes;
+        x.full = full;
+        x
+    }));
+    assert!(viewable(&{
+        let mut x = Display::default();
+        x.media = Media::Scalar;
+        x.value = Some(1.into());
+        x
+    }));
 }
 
 #[test]

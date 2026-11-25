@@ -277,7 +277,7 @@ impl Coordinator {
 /// Refuse a plan with a wire between an engine that keeps each run's list apart (`lists.nested`,
 /// spec 7.6 rule 2) and one that joins them: the two would read the same list differently, so a
 /// slice or a whole-list port across that wire would take something else on each side (research
-/// note 27, assumed, to be confirmed). The message names the wire and both engines.
+/// note 27). The message names the wire and both engines.
 pub fn lists_agree(plan: &plan::Plan, states: &[(String, EngineState)]) -> Result<(), NodeError> {
     use plumcraft_proto::caps::known::LISTS_NESTED;
     let nested = |engine: &str| states.iter().any(|(id, st)| id == engine && matches!(st, EngineState::Connected { caps, .. } if caps.has(LISTS_NESTED)));

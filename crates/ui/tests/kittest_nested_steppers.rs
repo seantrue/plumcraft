@@ -19,16 +19,15 @@ fn watched() -> Harness<'static, EditorApp> {
     s.connected = true;
     s.execute("run.watch", &json!({"node": node})).unwrap();
     let port = s.run.panel().unwrap().0.port.clone();
-    let d = Display {
-        node,
-        port,
-        media: Media::Text,
-        items: 3,
-        index: 1,
-        path: vec![0],
-        levels: vec![3, 2],
-        summary: "run 2 of 3 · item 1 of 2: a value".into(),
-        ..Default::default()
+    let d = {
+        let mut x = Display::new(node, port);
+        x.media = Media::Text;
+        x.items = 3;
+        x.index = 1;
+        x.path = vec![0];
+        x.levels = vec![3, 2];
+        x.summary = "run 2 of 3 · item 1 of 2: a value".into();
+        x
     };
     s.run.set_display(WatchRole::Panel, Some(d));
     let mut h = harness(EditorApp::new(s));
@@ -52,9 +51,19 @@ fn a_list_of_lists_steps_its_runs_and_the_items_in_a_run() {
 
 #[test]
 fn a_flat_list_has_one_stepper_of_items() {
-    let steps = plumcraft_ui::watched::level_steps(&Display { items: 3, ..Default::default() });
+    let steps = plumcraft_ui::watched::level_steps(&{
+        let mut x = Display::default();
+        x.items = 3;
+        x
+    });
     assert!(steps.is_empty());
-    let d = Display { items: 3, path: vec![1, 2], levels: vec![3, 2, 4], ..Default::default() };
+    let d = {
+        let mut x = Display::default();
+        x.items = 3;
+        x.path = vec![1, 2];
+        x.levels = vec![3, 2, 4];
+        x
+    };
     let steps = plumcraft_ui::watched::level_steps(&d);
     assert_eq!(steps.iter().map(|s| (s.word, s.at, s.of)).collect::<Vec<_>>(), [("run", 1, 2), ("item", 2, 4)]);
     assert_eq!(steps[0].path(0), vec![0], "a middle level's step goes back to the first item below it");

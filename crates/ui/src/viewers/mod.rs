@@ -434,7 +434,11 @@ mod tests {
     #[test]
     fn the_cores_default_viewer_is_this_registrys_first() {
         for media in [Media::Image, Media::Vector, Media::Doc, Media::Ndarray, Media::Audio, Media::Table, Media::Text, Media::Scalar, Media::Tree] {
-            let d = Display { media, ..Default::default() };
+            let d = {
+                let mut x = Display::default();
+                x.media = media;
+                x
+            };
             let ours = kinds_for(&d).first().map(|k| k.id);
             assert_eq!(ours, Some(plumcraft_editor_core::values::default_viewer(&d)), "{media:?}");
         }
@@ -464,7 +468,12 @@ mod tests {
         for media in all {
             for full in [false, true] {
                 for value in [None, Some(serde_json::json!([[1, 2], [3, 4]])), Some(serde_json::json!({"a": 1}))] {
-                    let mut d = Display { media, value, ..Default::default() };
+                    let mut d = {
+                        let mut x = Display::default();
+                        x.media = media;
+                        x.value = value;
+                        x
+                    };
                     if full {
                         d.full = Some(DataRef { handle: None, meta: Default::default(), at: vec![] });
                     }

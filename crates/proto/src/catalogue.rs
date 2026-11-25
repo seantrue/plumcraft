@@ -383,6 +383,8 @@ impl Port {
 }
 
 /// Behaviour flags of a node.
+/// Fields may be added: outside this crate, start from `NodeFlags::default()` and set the fields.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default)]
@@ -412,6 +414,47 @@ pub struct NodeFlags {
     /// once per outer item.
     #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
     pub nested_input: bool,
+}
+
+/// Builders, so a crate outside this one can make flags (the type is `#[non_exhaustive]`):
+/// `NodeFlags::default().with_input_list(true)`.
+impl NodeFlags {
+    pub fn with_output_node(mut self, on: bool) -> Self {
+        self.output_node = on;
+        self
+    }
+    pub fn with_input_list(mut self, on: bool) -> Self {
+        self.input_list = on;
+        self
+    }
+    pub fn with_per_channel(mut self, on: bool) -> Self {
+        self.per_channel = on;
+        self
+    }
+    pub fn with_keep(mut self, keep: Value) -> Self {
+        self.keep = keep;
+        self
+    }
+    pub fn with_vary_choices(mut self, on: bool) -> Self {
+        self.vary_choices = on;
+        self
+    }
+    pub fn with_recipe(mut self, port: Option<String>) -> Self {
+        self.recipe = port;
+        self
+    }
+    pub fn with_bundle_port(mut self, port: Option<String>) -> Self {
+        self.bundle_port = port;
+        self
+    }
+    pub fn with_result(mut self, on: bool) -> Self {
+        self.result = on;
+        self
+    }
+    pub fn with_nested_input(mut self, on: bool) -> Self {
+        self.nested_input = on;
+        self
+    }
 }
 
 /// A custom editor: `curves`, `mask` or a pack kind, on a port.
