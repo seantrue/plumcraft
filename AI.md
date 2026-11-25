@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — A chart on a node's face, from a crate the core and the engine SDK share (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Chart: a", choosing the first of three options the agent had put for hover and face previews: the layout in a crate the engine SDKs can use, and the engine sending the thumbnail.
+
+**What the AI did.** The agent made `plumcraft-chart`, moved the array chart layout into it with the core re-exporting the old paths, wrote a rasteriser for the display list on tiny-skia (no text; bounded sizes), and had the Rust SDK draw a chart thumbnail for arrays the core plots. It chose a new crate over a feature of the protocol crate, since drawing is not part of the contract. It left the Python SDK without one and proposed a wheel of the crate.
+
+**Verification.** The agent's runs: pixel-probe tests of the rasteriser, a hostile sweep of display lists, an SDK test of a ramp and a histogram, Mac conformance 85 of 85 with a new case, the Swift kit's 126, the crates in the gate, the core's no-toolkit gate. The controller looked at the Mac picture of four faces: points, a histogram's columns, a dense line and a picture are each recognisable. The full suite ran on the Linux test host.
+
+**Defects.** That Mac picture is upside down as a whole (recorded as B168); the agent says it did not touch the capture, and nobody has checked an older build. An egui hover test had to change because a face now grows when its thumbnail arrives, which moves its pin: a behaviour change a person may notice as nodes resizing after a run.
+
 ### 2026-11-25 — Charts: time axes, zoom, a selection shared by a table and its chart, readouts (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** Track 3 overnight, on reasonable assumptions. The selection belonging to the value is their decision 7A in note 26.

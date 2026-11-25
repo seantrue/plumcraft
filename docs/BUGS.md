@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B168. Mac: the offscreen picture of the document window comes out upside down
+
+- Reported: 2026-11-25 (found by an AI agent's launch, not by the maintainer)
+- Report: the scripted Mac copy's picture of the whole document window, taken over the control port, is flipped top to bottom: node text reads mirrored vertically and titles sit at the bottom of each node. Pop-out pictures are the right way up.
+- Context: views slice 10's launch picture of four node faces. Not known: whether an earlier build's document picture was the right way up, and whether only the picture is flipped or anything a person sees.
+- Issue: none
+
 ### B167. Mac: the same error twice in a row shows no banner the second time
 
 - Reported: 2026-11-24 (found by an agent while fixing B165, not by the maintainer)
@@ -57,6 +64,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Slices 6 and 7 of note 26 (2026-11-25, overnight, branch `pr/views-s6`): a 1-D array shows as a line by index, reduced to the plot's width without losing a spike; a table's chart in the six kinds the maintainer named (histogram, line, stacked line, column, stacked column, treemap), chosen by `viewer.chart`, kept in the graph's `meta.charts` and undoable, laid out by the core and painted by the Apple shells, egui and Windows (Windows built, not launched). egui offers the CSV and SVG-text views; SVG text longer than its excerpt is drawn (both SDKs send the whole text). Hover and face previews are deferred.
 - Slice 8 of note 26 (2026-11-25, overnight, branch `pr/views-s8`): time axes, shares of a stack (`normalize`), a chart's zoom and pan (`viewer.range`), a selection that belongs to the value so a table window and a chart window share it (`viewer.select`, `view.popout {another: true}`, the table's Selected Only), a readout of what is under a point, and a probe on Compare's difference. Apple shells and egui; Windows built, not launched. Open: hover and face previews wait on a decision (where the picture is made); the table follows a selection that arrives and marks whole rows (follow-up, same branch); on the Mac, after that scroll, the row above shows through the column header; egui's table shows no selection.
 - Decided (2026-11-25): The maintainer, 2026-11-25, on the checklist page of 29 points (cards 1 to 15 are N1 to N15 here, 16 and 17 the release and merge points R1 and R2, 18 to 29 are V1 to V12 of note 26): "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A; 11A; 12A; 13A; 14A; 15A; 16A; 17A; 18A; 19A; 20A; 21A; 22A; 23A; 24A; 25A; 26A; 27A; 28A; 29B". The views points (18 to 28) stand as built; 29B: a long TEXT is not sent whole by the engine, the editor asks the engine for the rest (to build). Then, the same day: "Stop. Take the long text". So item 12 stands as built too (29A): the engine sends the whole of a long TEXT. Nothing to build.
+- Face previews (2026-11-25, branch `pr/views-s10`; the maintainer: "Chart: a"): the array chart layout moved to a new crate, `plumcraft-chart`, with a rasteriser, and the Rust engine SDK sends the chart as the face's thumbnail for a 1-D array or a table array the core plots (no protocol change). The Python SDK does not yet. Apple and Windows have no wire or port hover of a value; egui's shows the same layout.
 - Issue: none
 
 ### B148. Mac: the canvas picture from `ui.screenshot` comes out upside down and mirrored
