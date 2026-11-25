@@ -714,7 +714,7 @@ public sealed class TableViewer : IViewer
     int fetches;
     public double LastPageMs { get; private set; }
 
-    sealed record RowItem(ulong Index, string[] Cells, double?[] Tints);
+    sealed record RowItem(ulong Index, string[] Cells, double?[] Tints, bool Selected = false);
 
     public TableViewer(PopoutModel pop, bool grid)
     {
@@ -738,6 +738,8 @@ public sealed class TableViewer : IViewer
         list.ItemTemplate = (DataTemplate)XamlReader.Load("<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><Grid/></DataTemplate>");
         list.ItemContainerStyle = ContainerStyle();
         list.ContainerContentChanging += Fill;
+        list.PointerWheelChanged += (_, _) => personScrolled = true;
+        list.ManipulationStarted += (_, _) => personScrolled = true;
     }
 
     static Style ContainerStyle()
@@ -817,8 +819,9 @@ public sealed class TableViewer : IViewer
         numericRows = grid;
         // each cell's place in its range, 0 to 1, when colour by value is on (note 26 slice 2; the core's)
         var tints = r.Get("tints").Items().ToList();
+        var chosen = r.Get("selected").Items().Select(x => x.ValueKind == JsonValueKind.True).ToList();
         var rows = cells.Select((c, i) => new RowItem(start + (ulong)i, [.. c.Items().Select(x => x.Str() ?? x.GetRawText())],
-            i < tints.Count ? [.. tints[i].Items().Select(t => t.Double())] : [])).ToList();
+            i < tints.Count ? [.. tints[i].Items().Select(t => t.Double())] : [], i < chosen.Count && chosen[i])).ToList();
         // each column as wide as its header and the page's cells need, within reason
         widths = [.. names.Select((n, i) =>
         {
@@ -829,6 +832,7 @@ public sealed class TableViewer : IViewer
         Top(r, v);
         list.Width = widths.Sum() + (numericRows ? 64 : 0) + 40;
         list.ItemsSource = rows;
+        Follow(r, rows, start);
         pager.Content = V.PageBar("rows", start, rows.Count, r.Get("rows").U64() ?? 0, r.Get("page").U64() ?? 0, r.Get("pages").U64() ?? 1,
             async n => await pop.CommandAsync(grid ? "viewer.grid" : "viewer.table", ("page", Jsonv.Of(n))));
     }
@@ -857,6 +861,14 @@ public sealed class TableViewer : IViewer
             var b = new DropDownButton { Content = $"Format: {shown ?? "Default"}", Flyout = f };
             ToolTipService.SetToolTip(b, "How the numbers are written (viewer.grid format)");
             line.Children.Add(b);
+        }
+        // the value's selection (note 26 slice 8, decision 7A): its rows marked, or only they
+        if (!grid && page?.Get("selectedRows").U64() is { } n)
+        {
+            line.Children.Add(new TextBlock { Text = $"{n} of {page.Get("allRows").U64()} selected", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
+            var only = new ToggleButton { Content = "Selected Only", IsChecked = st.Get("selectedOnly").IsTrue(), Padding = new Thickness(8, 2, 8, 2) };
+            only.Click += async (_, _) => await pop.CommandAsync("viewer.table", ("selectedOnly", Jsonv.Of(only.IsChecked == true)));
+            line.Children.Add(only);
         }
         if (page is { } pg && pg.Get("range") is { } range && range.ValueKind == JsonValueKind.Array)
             line.Children.Add(new TextBlock { Text = $"{range.At(0).Str()} to {range.At(1).Str()}", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
@@ -939,6 +951,8 @@ public sealed class TableViewer : IViewer
     void Fill(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
         if (e.InRecycleQueue || e.Item is not RowItem r || e.ItemContainer.ContentTemplateRoot is not Grid cellGrid) return;
+        // a selected row marked whole (note 26 slice 8)
+        e.ItemContainer.Background = r.Selected ? new SolidColorBrush(Windows.UI.Color.FromArgb(56, 255, 127, 14)) : null;
         var need = widths.Length + (numericRows ? 1 : 0);
         if (cellGrid.ColumnDefinitions.Count != need || cellGrid.Children.Count != need)
         {
@@ -972,6 +986,25 @@ public sealed class TableViewer : IViewer
         }
     }
 
+    ulong? seenSeq;
+    bool personScrolled;
+
+    /// <summary>A selection that arrives (`selectionSeq`), from this window or another, is shown: the page holding its
+    /// first row (`firstSelected`) asked of the core, then that row scrolled to the top; unless the person scrolled.</summary>
+    void Follow(JsonElement r, List<RowItem> rows, ulong start)
+    {
+        if (r.Get("selectionSeq").U64() is not { } seq || seq == seenSeq) return;
+        var first = r.Get("firstSelected");
+        if (personScrolled || first.Get("at").U64() is not { } at) { seenSeq = seq; return; }
+        if (first.Get("page").U64() is { } want && want != (r.Get("page").U64() ?? 0))
+        {
+            _ = pop.CommandAsync("viewer.table", ("page", Jsonv.Of(want)));
+            return;
+        }
+        seenSeq = seq;
+        if (at >= start && (int)(at - start) < rows.Count) list.ScrollIntoView(rows[(int)(at - start)], ScrollIntoViewAlignment.Leading);
+    }
+
     /// <summary>A cell's tint for its place `t` (0 to 1) in its range: the accent, from clear to strong.</summary>
     static Windows.UI.Color Tint(double t)
     {
@@ -1001,6 +1034,8 @@ public sealed class ChartViewer : IViewer
     readonly StackPanel choices = new() { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(12, 6, 12, 2) };
     readonly CanvasControl canvas = new() { MinHeight = 160 };
     readonly TextBlock note = new() { Style = Ui.TextStyle("CaptionTextBlockStyle"), Margin = new Thickness(12, 2, 12, 2) };
+    readonly StackPanel tools = new() { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 0, 12, 2) };
+    readonly TextBlock readout = new() { Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center };
     JsonElement? list;
     string? asked;
     (double w, double h) size;
@@ -1011,12 +1046,58 @@ public sealed class ChartViewer : IViewer
     {
         this.pop = pop;
         this.table = table;
-        foreach (var h in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) }) g.RowDefinitions.Add(new RowDefinition { Height = h });
+        foreach (var h in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) }) g.RowDefinitions.Add(new RowDefinition { Height = h });
         g.Children.Add(choices);
         g.Children.Add(note.At(0, 1));
-        g.Children.Add(canvas.At(0, 2));
+        g.Children.Add(tools.At(0, 2));
+        g.Children.Add(canvas.At(0, 3));
         canvas.Draw += Draw;
         canvas.SizeChanged += (_, e) => { size = (Math.Round(e.NewSize.Width), Math.Round(e.NewSize.Height)); if (last is { } v) Update(v); };
+        // note 26 slice 8: a drag across the plot brushes its x (`viewer.select`), the wheel zooms the x about
+        // the pointer (`viewer.range`), the pointer over a mark reads it (`viewer.data {part: "hit"}`); each the core's
+        canvas.PointerPressed += (_, e) => { dragFrom = e.GetCurrentPoint(canvas).Position.X; dragTo = dragFrom; canvas.CapturePointer(e.Pointer); };
+        canvas.PointerMoved += async (_, e) =>
+        {
+            var at = e.GetCurrentPoint(canvas).Position;
+            if (dragFrom is not null) { dragTo = at.X; canvas.Invalidate(); return; }
+            await Hit(at.X, at.Y);
+        };
+        canvas.PointerReleased += async (_, e) =>
+        {
+            canvas.ReleasePointerCapture(e.Pointer);
+            if (dragFrom is { } a && dragTo is { } b && Math.Abs(b - a) > 6 && DataX(Math.Min(a, b)) is { } x0 && DataX(Math.Max(a, b)) is { } x1)
+                await pop.CommandAsync("viewer.select", ("brush", Jsonv.Object(("x", Jsonv.Array([Jsonv.Of(x0), Jsonv.Of(x1)])))));
+            dragFrom = dragTo = null;
+            canvas.Invalidate();
+        };
+        canvas.PointerWheelChanged += async (_, e) =>
+        {
+            var pt = e.GetCurrentPoint(canvas);
+            var s = Nums(list?.Get("scale").Get("x"));
+            if (s.Length != 4 || DataX(pt.Position.X) is not { } c) return;
+            var by = pt.Properties.MouseWheelDelta > 0 ? 1.25 : 0.8;
+            var half = (s[1] - s[0]) / 2 / by;
+            await pop.CommandAsync("viewer.range", ("x", Jsonv.Array([Jsonv.Of(c - half), Jsonv.Of(c + half)])));
+        };
+    }
+
+    double? dragFrom, dragTo;
+    int hitSeq;
+
+    /// <summary>A point's data on the x axis, by the chart's own scale.</summary>
+    double? DataX(double x)
+    {
+        var s = Nums(list?.Get("scale").Get("x"));
+        if (s.Length != 4 || s[3] == s[2]) return null;
+        return s[0] + (x - s[2]) / (s[3] - s[2]) * (s[1] - s[0]);
+    }
+
+    async Task Hit(double x, double y)
+    {
+        var seq = ++hitSeq;
+        var r = await pop.DataAsync("hit", null, ("width", Jsonv.Of(Math.Max(size.w, 120))), ("height", Jsonv.Of(Math.Max(size.h, 120))), ("x", Jsonv.Of(x)), ("y", Jsonv.Of(y)));
+        if (seq != hitSeq) return;
+        readout.Text = r.Get("hit").Get("text").Str() ?? "";
     }
 
     public string Kind => table ? "table.chart" : "array.plot";
@@ -1050,7 +1131,29 @@ public sealed class ChartViewer : IViewer
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(canvas, note.Text);
         }
         Choices(r);
+        Tools(r);
         canvas.Invalidate();
+    }
+
+    /// <summary>Reset Zoom while a range is shown, Clear Selection while rows are selected, and the readout.</summary>
+    void Tools(JsonElement r)
+    {
+        tools.Children.Clear();
+        var range = last?.State.Get("chart").Get("range");
+        if (range.Get("x") is { ValueKind: JsonValueKind.Array } || range.Get("y") is { ValueKind: JsonValueKind.Array })
+        {
+            var reset = new HyperlinkButton { Content = "Reset Zoom", Padding = new Thickness(4, 0, 4, 0) };
+            reset.Click += async (_, _) => await pop.CommandAsync("viewer.range", ("reset", Jsonv.True));
+            tools.Children.Add(reset);
+        }
+        if (r.Get("selected").U64() is { } n)
+        {
+            tools.Children.Add(new TextBlock { Text = $"{n} selected", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
+            var clear = new HyperlinkButton { Content = "Clear Selection", Padding = new Thickness(4, 0, 4, 0) };
+            clear.Click += async (_, _) => await pop.CommandAsync("viewer.select", ("clear", Jsonv.True));
+            tools.Children.Add(clear);
+        }
+        tools.Children.Add(readout);
     }
 
     static readonly (string label, string mark, bool stack)[] Kinds =
@@ -1151,6 +1254,11 @@ public sealed class ChartViewer : IViewer
         var gridC = Alpha(dim, 0.25);
         foreach (var x in Nums(l.Get("grid").Get("x"))) ds.DrawLine(x, py, x, py + ph, gridC, 0.5f);
         foreach (var y in Nums(l.Get("grid").Get("y"))) ds.DrawLine(px, y, px + pw, y, gridC, 0.5f);
+        // the marks inside the plot (`clip`), over a brush: the core's, or one being dragged
+        var clip = l.Get("clip").IsTrue() ? ds.CreateLayer(1f, new Windows.Foundation.Rect(px, py, pw, ph)) : null;
+        var band = Nums(l.Get("selection").Get("x"));
+        if (dragFrom is { } d0 && dragTo is { } d1) ds.FillRectangle((float)Math.Min(d0, d1), py, (float)Math.Abs(d1 - d0), ph, Alpha(accent, 0.15));
+        else if (band.Length == 2) ds.FillRectangle(band[0], py, band[1] - band[0], ph, Windows.UI.Color.FromArgb(30, 255, 127, 14));
         foreach (var m in l.Get("marks").Items())
         {
             var c = Colour(m.Get("color"), accent);
@@ -1202,6 +1310,7 @@ public sealed class ChartViewer : IViewer
                     break;
             }
         }
+        clip?.Dispose();
         foreach (var lg in l.Get("legend").Items())
         {
             if (lg.Get("x").Double() is not { } x || lg.Get("y").Double() is not { } y) continue;

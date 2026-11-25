@@ -50,5 +50,19 @@ extension GestureTests {
         XCTAssertNotNil(control.call("command.run", ["command": "edit.undo"], doc: doc))
         wait("the chart drawn again after the undo", timeout: 60) { _ in drawn() == "column" }
         shot("views-s7-ui-after-undo")
+        // note 26 slice 8: a drag across the plot brushes its x; the value's rows there are selected,
+        // the core's selection (`viewer.select`); Clear Selection takes it away
+        XCTAssertNotNil(control.call("command.run", ["command": "viewer.chart", "params": ["popout": pid, "mark": "histogram", "x": "amount", "bins": 6]], doc: doc))
+        wait("the histogram drawn", timeout: 60) { _ in drawn() == "histogram" }
+        let chart = app.descendants(matching: .any)["viewer-chart"].firstMatch
+        XCTAssertTrue(chart.waitForExistence(timeout: 10))
+        let selected = { ((self.popout("t")?["chart"] as? [String: Any])?["selected"] as? Int) ?? -1 }
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.1, thenDragTo: chart.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)))
+        wait("rows selected by the brush", timeout: 30) { _ in selected() > 0 }
+        shot("views-s8-ui-brushed")
+        let clear = app.buttons["chart-clear-selection"].firstMatch
+        XCTAssertTrue(clear.waitForExistence(timeout: 10), "Clear Selection")
+        clear.tap()
+        wait("the selection cleared", timeout: 30) { _ in selected() == -1 }
     }
 }

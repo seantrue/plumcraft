@@ -18,6 +18,7 @@ use plumcraft_proto::catalogue::Media;
 use plumcraft_proto::data::{DataRef, Form};
 use plumcraft_proto::display::{Display, Rendition};
 use plumcraft_session::Session;
+use plumcraft_session::chart_view::Selection;
 use plumcraft_session::run::WatchRole;
 use plumcraft_session::viewer_state::{GRID_COLUMNS, HEX_PAGE, TABLE_PAGE, ViewerState, last_window};
 use serde_json::{Map, Value, json};
@@ -375,26 +376,50 @@ fn whole(p: &Value, k: &str) -> Result<Option<u64>, String> {
 /// state's plane, page and window of columns), `hex` (the state's page), `probe` (`row`, `col`:
 /// the exact values there), `yaml`.
 pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<Value, String> {
-    crate::control::check_fields(params, &["popout", "part", "row", "col", "width", "height"])?;
+    crate::control::check_fields(params, &["popout", "part", "row", "col", "width", "height", "x", "y"])?;
     let id = params.get("popout").and_then(Value::as_u64).ok_or("popout must be a pop-out's id")?;
     let o = session.views.popout(id).ok_or_else(|| format!("no pop-out {id}"))?;
     let (_, d) = session.run.entry(WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
     let d = d.ok_or("no value yet: run the graph")?;
     let part = params.get("part").and_then(Value::as_str).ok_or("part is table, tree, grid, hex, probe or yaml")?;
+    let (w, _) = session.run.entry(WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
+    let spec = plumcraft_session::chart_cmds::spec_of(session.graph(), &w.node, &w.port);
+    let sel = session.views.selections.get(&format!("{}.{}", w.node, w.port));
     let mut out = match part {
-        "table" => table(d, media, &o.state),
+        "table" => {
+            let mut t = table(d, media, &o.state, sel, spec.as_ref());
+            if sel.is_some() && t.get("cells").is_some() {
+                t["selectionSeq"] = json!(session.views.selection_seq);
+            }
+            t
+        }
         "tree" => tree(d, media, &o.state),
         "yaml" => yaml(d, media),
-        "chart" => {
+        "chart" | "hit" => {
             let side = |k: &str, dflt: f64| match params.get(k) {
                 None | Some(Value::Null) => Ok(dflt),
                 Some(v) => v.as_f64().filter(|f| f.is_finite() && *f > 0.0).ok_or(format!("{k} must be a positive number of points")),
             };
             let size = (side("width", crate::chart::DEFAULT_SIZE.0)?, side("height", crate::chart::DEFAULT_SIZE.1)?);
-            let (w, _) = session.run.entry(WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
-            let spec = plumcraft_session::chart_cmds::spec_of(session.graph(), &w.node, &w.port);
             let plotted = d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some());
-            if plotted && spec.is_none() { chart(d, media, size) } else { table_chart(d, media, spec, size) }
+            let range = o.state.chart_range;
+            let mut list = if plotted && spec.is_none() { chart(d, media, size, range, sel) } else { table_chart(d, media, spec, size, range, sel) };
+            if part == "hit" {
+                let at = |k: &str| params.get(k).and_then(Value::as_f64).filter(|f| f.is_finite()).ok_or(format!("hit needs {k}, a point in the chart"));
+                let (x, y) = (at("x")?, at("y")?);
+                if list.get("marks").is_none() { list } else { hit(&list, x, y) }
+            } else {
+                brush_band(&mut list, sel);
+                // the readouts stay in the core: a shell asks for one (`part: "hit"`)
+                if let Some(marks) = list.get_mut("marks").and_then(Value::as_array_mut) {
+                    for m in marks {
+                        if let Some(o) = m.as_object_mut() {
+                            o.remove("tips");
+                        }
+                    }
+                }
+                list
+            }
         }
         "grid" => grid(d, media, &o.state),
         "hex" => hex(d, media, o.state.hex_page),
@@ -425,7 +450,7 @@ fn json_of(d: &Display, media: &MediaService) -> Result<Arc<Value>, Value> {
     }
 }
 
-fn table(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
+fn table(d: &Display, media: &MediaService, st: &ViewerState, sel: Option<&Selection>, spec: Option<&Value>) -> Value {
     let (t, order): (Arc<Table>, Option<Arc<Vec<u32>>>) = match (&d.value, &d.full) {
         (Some(v), _) => match Table::from_value(v) {
             Ok(t) => {
@@ -453,7 +478,27 @@ fn table(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
         }
         (None, None) => return json!({"status": "failed", "error": "this table has nothing to read"}),
     };
-    let rows = t.rows as u64;
+    // the value's selection (note 26 slice 8): each row shown says whether it is selected, and
+    // `selectedOnly` shows only those, in the order sorted
+    let mask = sel.map(|s| mask_of(s, &t, x_column(spec, &t).as_deref()));
+    let chosen = mask.as_ref().map(|m| m.iter().filter(|b| **b).count());
+    let order: Option<Arc<Vec<u32>>> = match (&mask, st.table_selected_only) {
+        (Some(m), true) => {
+            let all: Box<dyn Iterator<Item = u32>> = match &order {
+                Some(o) => Box::new(o.iter().copied()),
+                None => Box::new(0..u32::try_from(t.rows).unwrap_or(u32::MAX)),
+            };
+            Some(Arc::new(all.filter(|r| m.get(*r as usize).copied().unwrap_or(false)).collect()))
+        }
+        _ => order,
+    };
+    let rows = order.as_ref().filter(|_| st.table_selected_only && mask.is_some()).map_or(t.rows as u64, |o| o.len() as u64);
+    // where the first selected row is in the order shown, and on which page: a shell's table
+    // goes there when a selection arrives (from this window or another)
+    let first_selected = mask.as_ref().and_then(|m| {
+        let at_row = |i: u64| order.as_ref().map_or(Some(i), |o| o.get(i as usize).map(|r| u64::from(*r)));
+        (0..rows).find_map(|i| at_row(i).filter(|r| m.get(*r as usize).copied().unwrap_or(false)).map(|r| (i, r)))
+    });
     let pages = rows.div_ceil(TABLE_PAGE).max(1);
     let page = st.page.min(pages - 1);
     let start = page * TABLE_PAGE;
@@ -482,8 +527,15 @@ fn table(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
             ));
         }
     }
+    let flags: Option<Vec<Value>> =
+        mask.as_ref().map(|m| index.iter().map(|r| json!(r.as_u64().and_then(|r| m.get(r as usize).copied()).unwrap_or(false))).collect());
     let mut out = json!({"columns": columns, "rows": rows, "page": page, "pages": pages, "pageRows": TABLE_PAGE, "start": start,
-           "sort": st.sort, "desc": st.desc, "index": index, "cells": cells, "colored": st.table_colored});
+           "sort": st.sort, "desc": st.desc, "index": index, "cells": cells, "colored": st.table_colored,
+           "selectedOnly": st.table_selected_only && mask.is_some(), "selectedRows": chosen, "allRows": t.rows,
+           "firstSelected": first_selected.map(|(at, row)| json!({"at": at, "page": at / TABLE_PAGE, "row": row}))});
+    if let Some(f) = flags {
+        out["selected"] = Value::Array(f);
+    }
     if st.table_colored {
         out["tints"] = Value::Array(tints);
     }
@@ -629,7 +681,7 @@ fn grid(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
 }
 
 /// A chart's display list for a table array the core plots ([`crate::chart`]), laid out at `size`.
-fn chart(d: &Display, media: &MediaService, size: (f64, f64)) -> Value {
+fn chart(d: &Display, media: &MediaService, size: (f64, f64), range: plumcraft_session::chart_view::ChartRange, sel: Option<&Selection>) -> Value {
     let Some(full) = d.full.as_ref() else { return json!({"status": "failed", "error": "this value has no numbers to plot"}) };
     let Some(kind) = crate::chart::plotted(&full.meta.form) else { return json!({"status": "failed", "error": "this value isn't a table a chart plots"}) };
     let names = match &full.meta.form {
@@ -640,15 +692,139 @@ fn chart(d: &Display, media: &MediaService, size: (f64, f64)) -> Value {
         Fetch::Ready(b) => b,
         f => return not_ready(&f, full, Want::Bytes),
     };
-    match crate::chart::layout(&kind, &names, &b.dtype, &b.shape, &b.bytes, size) {
+    // the value's selected rows: by index, or a brush of a column (none: the chart's x)
+    let selected = sel.map(|s| match s {
+        Selection::Rows { rows } => rows_mask(rows, b.shape.first().copied().unwrap_or(0)),
+        Selection::Brush { column, span } => crate::chart::column_values(&kind, &names, &b.dtype, &b.shape, &b.bytes, column.as_deref())
+            .map(|v| v.iter().map(|x| span.contains(*x)).collect())
+            .unwrap_or_default(),
+    });
+    match crate::chart::layout_in(&kind, &names, &b.dtype, &b.shape, &b.bytes, size, &crate::chart::View { range, selected }) {
         Ok(v) => v,
         Err(e) => json!({"status": "failed", "error": e}),
     }
 }
 
+/// A mask of `n` rows from their indices.
+fn rows_mask(rows: &[u64], n: u64) -> Vec<bool> {
+    let n = usize::try_from(n.min(50_000_000)).unwrap_or(0);
+    let mut m = vec![false; n];
+    for r in rows {
+        if let Some(x) = usize::try_from(*r).ok().and_then(|r| m.get_mut(r)) {
+            *x = true;
+        }
+    }
+    m
+}
+
+/// The rows of a table a selection names (note 26 slice 8): by index, or a brush of a column's
+/// numbers or times (`column` none: `default`, the chart's x; none of either: the row's index).
+pub fn mask_of(sel: &Selection, t: &Table, default: Option<&str>) -> Vec<bool> {
+    let n = t.rows;
+    match sel {
+        Selection::Rows { rows } => rows_mask(rows, n as u64),
+        Selection::Brush { column, span } => match column.as_deref().or(default) {
+            None => (0..n).map(|r| span.contains(r as f64)).collect(),
+            Some(name) => match t.columns.iter().find(|c| c.name == name).and_then(|c| crate::chart_kinds::axis_values(c, n)) {
+                Some((vals, _)) => vals.iter().map(|v| v.is_some_and(|v| span.contains(v))).collect(),
+                None => vec![false; n],
+            },
+        },
+    }
+}
+
+/// A table chart's x column: the spec's, or the one the core picks.
+fn x_column(spec: Option<&Value>, t: &Table) -> Option<String> {
+    let spec = spec.cloned().unwrap_or_else(|| crate::chart_kinds::auto_spec(t));
+    spec.get("x").and_then(Value::as_str).map(str::to_owned)
+}
+
+/// A brush over the chart's x drawn as a band (`selection: {x: [from, to]}` in points, within
+/// the plot), when the brush is of the column the x axis shows.
+fn brush_band(list: &mut Value, sel: Option<&Selection>) {
+    let Some(Selection::Brush { column, span }) = sel else { return };
+    let title = list["axes"][0]["title"].as_str().unwrap_or_default();
+    if column.as_deref().is_some_and(|c| c != title) {
+        return;
+    }
+    let sx: Vec<f64> = list["scale"]["x"].as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+    let plot: Vec<f64> = list["plot"].as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+    if let ([d0, d1, p0, p1], [px, _, pw, _]) = (sx.as_slice(), plot.as_slice())
+        && d1 != d0
+    {
+        let at = |v: f64| p0 + (v - d0) / (d1 - d0) * (p1 - p0);
+        let (a, b) = (at(span.lo()).clamp(*px, px + pw), at(span.hi()).clamp(*px, px + pw));
+        list["selection"] = json!({"x": [crate::chart::round2(a.min(b)), crate::chart::round2(a.max(b))]});
+    }
+}
+
+/// What is under a point of a chart (`viewer.data {part: "hit", x, y}`): the nearest mark's
+/// readout, its series, and the data there by the chart's scales. `{hit: null}` when nothing is
+/// within reach.
+pub fn hit(list: &Value, x: f64, y: f64) -> Value {
+    const REACH: f64 = 24.0;
+    let nums = |v: &Value| -> Vec<f64> { v.as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default() };
+    let mut best: Option<(f64, String, usize)> = None;
+    for (mi, m) in list["marks"].as_array().into_iter().flatten().enumerate() {
+        let Some(tips) = m["tips"].as_array() else { continue };
+        let tip = |i: usize| tips.get(i).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let mut consider = |d: f64, i: usize| {
+            if d <= REACH && best.as_ref().is_none_or(|b| d < b.0) {
+                best = Some((d, tip(i), mi));
+            }
+        };
+        match m["kind"].as_str() {
+            Some("rects") => {
+                for (i, r) in nums(&m["rects"]).as_chunks::<4>().0.iter().enumerate() {
+                    let dx = (r[0] - x).max(x - (r[0] + r[2])).max(0.0);
+                    let dy = (r[1] - y).max(y - (r[1] + r[3])).max(0.0);
+                    // inside a rectangle beats any point near it
+                    consider(if dx == 0.0 && dy == 0.0 { -1.0 } else { dx.hypot(dy) }, i);
+                }
+            }
+            Some("points" | "line" | "area") => {
+                for (i, p) in nums(&m["xy"]).as_chunks::<2>().0.iter().enumerate().take(tips.len()) {
+                    consider((p[0] - x).hypot(p[1] - y), i);
+                }
+            }
+            Some("segments") => {
+                for (i, p) in nums(&m["xy"]).as_chunks::<4>().0.iter().enumerate() {
+                    consider((p[0] - x).hypot(p[1] - y).min((p[2] - x).hypot(p[3] - y)), i);
+                }
+            }
+            _ => {}
+        }
+    }
+    let data = |axis: &str, v: f64| -> Value {
+        let s = nums(&list["scale"][axis]);
+        match s.as_slice() {
+            [d0, d1, p0, p1] if p1 != p0 => {
+                let d = d0 + (v - p0) / (p1 - p0) * (d1 - d0);
+                if axis == "x" && list["timeX"].as_bool() == Some(true) { json!(plumcraft_proto::time::text(d)) } else { json!(number(d, false)) }
+            }
+            _ => Value::Null,
+        }
+    };
+    let at = json!({"x": data("x", x), "y": data("y", y)});
+    match best {
+        Some((_, tip, mi)) => {
+            let m = &list["marks"][mi];
+            json!({"hit": {"text": tip, "mark": mi, "color": m["color"], "selected": m["selected"].as_bool().unwrap_or(false)}, "at": at})
+        }
+        None => json!({"hit": null, "at": at}),
+    }
+}
+
 /// A table's chart (note 26 slices 5 to 7): its spec, or one chosen from its columns' types, laid
 /// out by [`crate::chart_kinds`]; the reply carries the spec drawn and the columns to choose from.
-fn table_chart(d: &Display, media: &MediaService, spec: Option<Value>, size: (f64, f64)) -> Value {
+fn table_chart(
+    d: &Display,
+    media: &MediaService,
+    spec: Option<Value>,
+    size: (f64, f64),
+    range: plumcraft_session::chart_view::ChartRange,
+    sel: Option<&Selection>,
+) -> Value {
     let t: Arc<Table> = match (&d.value, &d.full) {
         (Some(v), _) => match Table::from_value(v) {
             Ok(t) => Arc::new(t),
@@ -662,8 +838,14 @@ fn table_chart(d: &Display, media: &MediaService, spec: Option<Value>, size: (f6
     };
     let chosen = spec.is_some();
     let spec = spec.unwrap_or_else(|| crate::chart_kinds::auto_spec(&t));
-    let columns: Vec<Value> = t.columns.iter().take(4096).map(|c| json!({"name": c.name, "numeric": c.numeric()})).collect();
-    match crate::chart_kinds::layout(&spec, &t, size) {
+    let columns: Vec<Value> = t
+        .columns
+        .iter()
+        .take(4096)
+        .map(|c| json!({"name": c.name, "numeric": c.numeric(), "time": !c.numeric() && crate::chart_kinds::axis_values(c, t.rows.min(10_000)).is_some()}))
+        .collect();
+    let selected = sel.map(|s| mask_of(s, &t, x_column(Some(&spec), &t).as_deref()));
+    match crate::chart_kinds::layout_in(&spec, &t, size, &crate::chart::View { range, selected }) {
         Ok(mut v) => {
             v["spec"] = spec;
             v["chosen"] = json!(chosen);
@@ -778,19 +960,19 @@ mod tests {
         let mut d = display(Media::Table, None);
         d.full = Some(r);
         let mut st = ViewerState::default();
-        let first = table(&d, &m, &st);
+        let first = table(&d, &m, &st, None, None);
         assert_eq!(first["status"], "pending", "never read on the asker's thread");
         assert!(first["wait"].as_str().unwrap().starts_with("derive:table:"));
-        let page = until(|| table(&d, &m, &st));
+        let page = until(|| table(&d, &m, &st, None, None));
         assert_eq!((page["rows"].as_u64(), page["pages"].as_u64(), page["cells"].as_array().map(Vec::len)), (Some(n as u64), Some(40), Some(500)));
         st.sort = Some(0);
         st.desc = true;
         st.page = 999;
-        let sorted = until(|| table(&d, &m, &st));
+        let sorted = until(|| table(&d, &m, &st, None, None));
         assert_eq!(sorted["page"], 39, "a page past the end is the last");
         assert_eq!(sorted["cells"][499][0], "0");
         st.page = 0;
-        assert_eq!(until(|| table(&d, &m, &st))["cells"][0][0], json!((n - 1).to_string()));
+        assert_eq!(until(|| table(&d, &m, &st, None, None))["cells"][0][0], json!((n - 1).to_string()));
     }
 
     /// B152: a histogram from an engine that says "table" of a (256, 2) float array. The Table
@@ -805,7 +987,7 @@ mod tests {
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
         assert_eq!(ids, ["array.plot", "table.grid", "hex"], "a plot first (note 26 slice 5), no outline of an array");
         let mut st = ViewerState::default();
-        let page = until(|| table(&d, &m, &st));
+        let page = until(|| table(&d, &m, &st, None, None));
         assert_eq!(page["status"], Value::Null, "{page}");
         assert_eq!(
             (page["rows"].as_u64(), page["columns"][0]["name"].as_str(), page["columns"][1]["name"].as_str()),
@@ -814,7 +996,7 @@ mod tests {
         assert_eq!(page["columns"][1]["numeric"], true);
         assert_eq!(page["cells"][0][1], "255");
         st.sort = Some(1);
-        assert_eq!(until(|| table(&d, &m, &st))["cells"][0][1], "0", "sorted by count");
+        assert_eq!(until(|| table(&d, &m, &st, None, None))["cells"][0][1], "0", "sorted by count");
     }
 
     /// B154 slice 1: `popout.get`'s statistics carry each channel's NaN count and its histogram
@@ -882,9 +1064,9 @@ mod tests {
             Some(json!({"columns": [{"name": "n", "type": "INT", "values": [10, 20, 30]}, {"name": "s", "type": "STRING", "values": ["a", "b", "c"]}]})),
         );
         let mut st = ViewerState::default();
-        assert!(table(&t, &m, &st).get("tints").is_none());
+        assert!(table(&t, &m, &st, None, None).get("tints").is_none());
         st.table_colored = true;
-        assert_eq!(table(&t, &m, &st)["tints"], json!([[0.0, null], [0.5, null], [1.0, null]]));
+        assert_eq!(table(&t, &m, &st, None, None)["tints"], json!([[0.0, null], [0.5, null], [1.0, null]]));
         assert_eq!(tint(5.0, 5.0, 5.0), json!(0.5), "a single value");
         assert_eq!(tint(f64::INFINITY, 0.0, 1.0), Value::Null);
         assert_eq!(format_value(1234.5678, "%.4g"), "1235");
@@ -908,6 +1090,39 @@ mod tests {
         r.meta.size = MAX_SVG_TEXT as u64 + 1;
         d.full = Some(r);
         assert!(svg_text_ref(&d).is_none(), "too large to draw");
+    }
+
+    /// Note 26 slice 8: what is under a point of a chart is the core's: inside a bar, or the
+    /// nearest point within reach; the data there by the chart's scales.
+    #[test]
+    fn a_hit_reads_the_mark_under_a_point() {
+        let list = json!({"scale": {"x": [0.0, 10.0, 0.0, 100.0], "y": [0.0, 1.0, 100.0, 0.0]}, "marks": [
+            {"kind": "rects", "rects": [10, 50, 20, 50], "tips": ["a: 0.5"], "color": "#4e79a7"},
+            {"kind": "line", "xy": [0, 100, 50, 0], "tips": ["x 0: 0", "x 5: 1"]},
+        ]});
+        assert_eq!(hit(&list, 20.0, 80.0)["hit"]["text"], "a: 0.5", "inside the bar");
+        assert_eq!(hit(&list, 52.0, 3.0)["hit"]["text"], "x 5: 1", "the nearest point");
+        assert_eq!(hit(&list, 90.0, 50.0)["hit"], Value::Null, "nothing within reach");
+        assert_eq!(hit(&list, 50.0, 50.0)["at"], json!({"x": "5", "y": "0.5"}));
+        assert_eq!(hit(&json!({}), 1.0, 1.0)["hit"], Value::Null, "a list without marks");
+    }
+
+    /// Note 26 slice 8: a selection's rows, by index or by a brush of a column (times as
+    /// seconds); with no column, the chart's x, else the row's index.
+    #[test]
+    fn a_selection_names_rows() {
+        use plumcraft_session::chart_view::Span;
+        let t = Table::from_value(&json!({"columns": [
+            {"name": "d", "type": "STRING", "values": ["1970-01-01", "1970-01-03", null]},
+            {"name": "n", "type": "INT", "values": [1, 5, 9]},
+        ]}))
+        .unwrap();
+        let brush = |c: Option<&str>, lo, hi| Selection::Brush { column: c.map(str::to_owned), span: Span::new(lo, hi).unwrap() };
+        assert_eq!(mask_of(&brush(Some("n"), 4.0, 10.0), &t, None), [false, true, true]);
+        assert_eq!(mask_of(&brush(None, 0.0, 86_400.0), &t, Some("d")), [true, false, false], "the default column, times");
+        assert_eq!(mask_of(&brush(None, 0.5, 2.0), &t, None), [false, true, true], "by index");
+        assert_eq!(mask_of(&brush(Some("nowhere"), 0.0, 1.0), &t, None), [false, false, false]);
+        assert_eq!(mask_of(&Selection::Rows { rows: vec![2, 99] }, &t, None), [false, false, true]);
     }
 
     #[test]
@@ -958,14 +1173,14 @@ mod tests {
         let mut d = display(Media::Bytes, None);
         d.full = Some(r);
         let mut st = ViewerState { sort: Some(1), ..Default::default() };
-        let page = until(|| table(&d, &m, &st));
+        let page = until(|| table(&d, &m, &st, None, None));
         assert_eq!((page["rows"].as_u64(), page["columns"][1]["numeric"].as_bool()), (Some(3), Some(true)), "{page}");
         assert_eq!(page["cells"][0], json!(["c", "1"]), "sorted by n");
         st.sort = None;
         let (m2, mut bad) = media_with(b"a,b\n\"open\n".to_vec(), "|u1", vec![]);
         bad.meta.media = "text/csv".into();
         d.full = Some(bad);
-        assert_eq!(until(|| table(&d, &m2, &st))["status"], "failed");
+        assert_eq!(until(|| table(&d, &m2, &st, None, None))["status"], "failed");
     }
 
     #[test]
@@ -973,7 +1188,7 @@ mod tests {
         let (m, r) = media_with(b"{\"columns\": 7".to_vec(), "|u1", vec![]);
         let mut d = display(Media::Table, None);
         d.full = Some(r.clone());
-        let v = until(|| table(&d, &m, &ViewerState::default()));
+        let v = until(|| table(&d, &m, &ViewerState::default(), None, None));
         assert_eq!(v["status"], "failed", "{v}");
         let mut j = display(Media::Tree, None);
         j.full = Some(r);
