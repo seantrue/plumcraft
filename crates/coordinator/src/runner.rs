@@ -127,12 +127,12 @@ pub fn start(runs: &Arc<Runs>, req: RunRequest, plan: Result<Plan, NodeError>, e
 fn sliced(value: &PortValue, spec: Option<&str>) -> Result<PortValue, String> {
     let Some(spec) = spec else { return Ok(value.clone()) };
     let s = slice::parse(spec)?;
-    let PortValue::List { items } = value else { return Err(format!("slice {spec:?} needs a list, but the wire carries a single value")) };
+    let PortValue::List { items, .. } = value else { return Err(format!("slice {spec:?} needs a list, but the wire carries a single value")) };
     let picks = s.picks(items.len())?;
     if s.is_index() {
         return picks.first().and_then(|&i| items.get(i)).cloned().ok_or_else(|| format!("slice {spec:?} picks nothing"));
     }
-    Ok(PortValue::List { items: picks.iter().filter_map(|&i| items.get(i).cloned()).collect() })
+    Ok(PortValue::List { items: picks.iter().filter_map(|&i| items.get(i).cloned()).collect(), axes: Vec::new() })
 }
 
 fn report(state: NodeState, error: Option<NodeError>) -> NodeReport {
@@ -488,7 +488,7 @@ mod tests {
     use super::*;
 
     fn list(n: i64) -> PortValue {
-        PortValue::List { items: (0..n).map(|v| PortValue::Json { value: json!(v) }).collect() }
+        PortValue::List { items: (0..n).map(|v| PortValue::Json { value: json!(v) }).collect(), axes: Vec::new() }
     }
 
     #[test]

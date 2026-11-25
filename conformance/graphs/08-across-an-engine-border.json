@@ -1,0 +1,92 @@
+{
+ "name": "vector 2 across an engine border",
+ "about": "Vector 2 with the second range in the array engine: the coordinator delivers the sliced value across the border. Nested: 3 lists of 1, as in one engine. Today: 1.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 2.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "array",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "t": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "stop": 100.0,
+     "num": 1,
+     "endpoint": true
+    }
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "t",
+     "port": "start"
+    },
+    "slice": "1"
+   }
+  ]
+ },
+ "expect": {
+  "t.values": {
+   "shape": [
+    3,
+    1
+   ],
+   "values": [
+    [
+     0.0
+    ],
+    [
+     1.0
+    ],
+    [
+     2.0
+    ]
+   ]
+  }
+ },
+ "today": {
+  "t.values": {
+   "shape": [
+    1
+   ],
+   "values": [
+    0.0
+   ]
+  }
+ }
+}

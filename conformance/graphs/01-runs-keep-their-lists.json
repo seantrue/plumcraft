@@ -1,0 +1,80 @@
+{
+ "name": "a step run once per item keeps each run's list",
+ "about": "A range of 3 into the stop of a second range of 2: the second runs 3 times, each run making [10, r]. Nested: 3 lists of 2. Today: one flat list of 6.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 2.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "s.values": {
+   "shape": [
+    3,
+    2
+   ],
+   "values": [
+    [
+     10.0,
+     0.0
+    ],
+    [
+     10.0,
+     1.0
+    ],
+    [
+     10.0,
+     2.0
+    ]
+   ]
+  }
+ },
+ "today": {
+  "s.values": {
+   "shape": [
+    6
+   ],
+   "values": [
+    10.0,
+    0.0,
+    10.0,
+    1.0,
+    10.0,
+    2.0
+   ]
+  }
+ }
+}

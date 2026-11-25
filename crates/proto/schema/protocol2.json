@@ -2389,6 +2389,25 @@
         },
         {
           "properties": {
+            "axes": {
+              "description": "The list's axes, outermost first: `[[name, length], …]` (capability `lists.nested`,\nspec 4.5 and 7.6 rule 2). Absent or empty: one anonymous axis. Malformed entries are\ndropped; axes whose lengths don't multiply to the item count are to be read as absent.\nCarried, not yet acted on: no executor reads or writes it (nested lists, slice 1).",
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
             "items": {
               "default": [],
               "items": {

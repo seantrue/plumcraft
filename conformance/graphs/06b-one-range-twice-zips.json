@@ -1,0 +1,67 @@
+{
+ "name": "one range into two inputs zips",
+ "about": "The same range into start and stop of a range of 1: one axis, so 3 runs (a zip), each a list of 1. Nested: 3 lists of 1. Today: joined, 3.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 2.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "u": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "num": 1,
+     "endpoint": true
+    }
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "u",
+     "port": "start"
+    }
+   },
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "u",
+     "port": "stop"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "u.values": {
+   "shape": [
+    3,
+    1
+   ]
+  }
+ },
+ "today": {
+  "u.values": {
+   "shape": [
+    3
+   ]
+  }
+ }
+}
