@@ -616,6 +616,10 @@ public struct PopoutValue: Codable, Hashable, Sendable {
     /// A list's length and the item shown.
     public var items: UInt64?
     public var index: Int64?
+    /// A list of lists (interface 7.6 rule 2): the item shown within run `index`, a level at a
+    /// time, and each level's count, outermost first (`levels[0]` is `items`); absent otherwise.
+    public var path: [Int64]?
+    public var levels: [UInt64]?
     /// The full value's form (`{kind: "audio", sample_rate, channels, frames}`, an array's shape…).
     public var form: JSONValue?
     /// The full value's size in bytes, its media type and handle.

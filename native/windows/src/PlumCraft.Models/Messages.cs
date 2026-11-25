@@ -632,6 +632,10 @@ public sealed record PopoutValue
     public string? Type { get; init; }
     public ulong? Items { get; init; }
     public long? Index { get; init; }
+    /// <summary>A list of lists (interface 7.6 rule 2): the item shown within run `index`, a level at a time, and
+    /// each level's count, outermost first (`levels[0]` is `items`); absent otherwise.</summary>
+    public List<long>? Path { get; init; }
+    public List<ulong>? Levels { get; init; }
     public JsonElement? Form { get; init; }
     public ulong? Bytes { get; init; }
     public string? MediaType { get; init; }

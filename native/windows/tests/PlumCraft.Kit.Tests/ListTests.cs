@@ -18,7 +18,25 @@ public class ListNamesTests
         var scene = Shell.Decode<Scene>(ReadFixture("crates/editor-core/fixtures/scene/full.json"), Shell.Strict);
         var p = scene.Nodes.Select(f => f.Preview).First(p => p?.Items > 1)!;
         Assert.Equal("first", p.Caption);
-        Assert.Equal("first · 3 pictures", ListNames.Tag(p));
+        Assert.Equal("first · 3 × 2 pictures", ListNames.Tag(p));
+    }
+
+    [Fact]
+    public void AListOfListsCountsEachLevelAndStepsInsideARun()
+    {
+        Assert.Equal("3 × 2 items", ListNames.Tag(new Preview { Kind = "rgba8", Items = 3, Levels = [3, 2] }));
+        Assert.Equal("3 items", ListNames.Tag(new Preview { Kind = "rgba8", Items = 3, Levels = [3] }));
+        Assert.Equal("run", ListNames.OuterWord([3, 2]));
+        Assert.Equal("item", ListNames.OuterWord(null));
+        Assert.Equal("run 2 of 3", ListNames.Title([], 1, 3, "run"));
+        Assert.Empty(ListNames.Steps(null, [3]));
+        var steps = ListNames.Steps([1, 2], [3, 2, 4]);
+        Assert.Equal(new[] { "run 2 of 2", "item 3 of 4" }, steps.Select(s => $"{s.Word} {s.At + 1} of {s.Of}"));
+        Assert.Equal(new List<long> { 0 }, steps[0].PathTo(0));
+        Assert.Equal(new List<long> { 1, 3 }, steps[1].PathTo(3));
+        var v = Shell.Decode<PopoutValue>(J("""{"id": 1, "node": "n", "port": "p", "items": 3, "index": 1, "path": [1], "levels": [3, 2]}"""), Shell.Strict);
+        Assert.Equal(new List<long> { 1 }, v.Path);
+        Assert.Equal(new List<ulong> { 3, 2 }, v.Levels);
     }
 
     [Fact]

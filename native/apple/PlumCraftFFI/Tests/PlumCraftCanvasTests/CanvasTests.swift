@@ -412,3 +412,13 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
     #expect(LayerCanvas.listTagText(try picture(3, nil)) == "3 items")
     #expect(LayerCanvas.listTagText(try picture(1, "Lab")) == nil, "one picture: no tag")
 }
+
+/// A face's picture of a list of lists gives each level's count (interface 7.6 rule 2).
+@Test func aListOfListsCountsEachLevelOnItsFace() throws {
+    let o: [String: Any] = ["handle": "b3:aa", "w": 10, "h": 10, "size": [10, 10], "hoverSize": [20, 20], "items": 3, "levels": [3, 2], "summary": "s", "faded": false]
+    let p = try JSONValueDecoder().decode(PlumCraftModels.Preview.Picture.self, from: JSONSerialization.data(withJSONObject: o))
+    #expect(LayerCanvas.listTagText(p) == "3 × 2 items")
+    var named = p
+    named.caption = "Lab"
+    #expect(LayerCanvas.listTagText(named) == "Lab · 3 × 2 pictures")
+}

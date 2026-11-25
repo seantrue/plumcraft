@@ -90,6 +90,59 @@ public struct ViewerView: SwiftUI.View {
     }
 }
 
+/// A list of lists' steppers inside the run shown (interface 7.6 rule 2, decision 6A): one a
+/// level below the runs, "item j of m" for the innermost, each asking `run.item {index, path}`
+/// with its own level changed. Nothing for a list that isn't nested.
+public struct LevelSteppers: SwiftUI.View {
+    let box: ViewerBox
+    let value: PopoutValue
+
+    /// One inner level: what it steps, where it is (`at` of `of`), and the path to each item.
+    public struct Step: Hashable, Sendable {
+        public var word: String
+        public var at: Int64
+        public var of: UInt64
+        public var level: Int
+        public var shown: [Int64]
+
+        /// The path that shows item `j` of this level: the levels above kept, those below at their first.
+        public func path(_ j: Int64) -> [Int64] { Array(shown.prefix(level)) + [j] }
+    }
+
+    /// The outer stepper's word: "run" for a list of lists, else "item".
+    public nonisolated static func outerWord(_ value: PopoutValue) -> String {
+        (value.levels ?? []).count > 1 ? "run" : "item"
+    }
+
+    public nonisolated static func steps(_ value: PopoutValue) -> [Step] {
+        let levels = value.levels ?? [], path = value.path ?? []
+        let deep = max(levels.count - 1, 0)
+        return (0..<deep).map { k in
+            Step(word: k + 1 == deep ? "item" : "run", at: k < path.count ? path[k] : 0, of: levels[k + 1], level: k, shown: path)
+        }
+    }
+
+    public var body: some SwiftUI.View {
+        ForEach(Self.steps(value), id: \.level) { s in
+            Divider().frame(height: 14)
+            Button { go(s, s.at - 1) } label: { Image(systemName: "chevron.left") }
+                .disabled(s.at <= 0).accessibilityLabel("Previous \(s.word.capitalized) in Run")
+            // its own width, so a crowded bar never squeezes it out
+            Text("\(s.word) \(s.at + 1) of \(s.of)").font(.caption).monospacedDigit().fixedSize().layoutPriority(1)
+                .accessibilityIdentifier("viewer-level-\(s.level)")
+            Button { go(s, s.at + 1) } label: { Image(systemName: "chevron.right") }
+                .disabled(s.at + 1 >= Int64(s.of)).accessibilityLabel("Next \(s.word.capitalized) in Run")
+        }
+    }
+
+    private func go(_ s: Step, _ j: Int64) {
+        guard j >= 0, UInt64(j) < s.of else { return }
+        let p = box.popout
+        let index = value.index ?? 0
+        Task { await p.command("run.item", ["index": .int(index), "path": .array(s.path(j).map { .int($0) })]) }
+    }
+}
+
 /// View As and the ways out; a list's stepper.
 public struct ViewerBar: SwiftUI.View {
     let box: ViewerBox
@@ -123,7 +176,7 @@ public struct ViewerBar: SwiftUI.View {
                 let names = Self.itemNames(value)
                 Button { step(i - 1, n) } label: { Image(systemName: "chevron.left") }.disabled(i <= 0).accessibilityLabel("Previous Item")
                 if names.isEmpty {
-                    Text("item \(i + 1) of \(n)").font(.caption).monospacedDigit()
+                    Text("\(LevelSteppers.outerWord(value)) \(i + 1) of \(n)").font(.caption).monospacedDigit()
                 } else {
                     // a list of named pictures (SIGNALS's planes, say): each by its name, as the
                     // egui editor's list of items has them (`run.item`)
@@ -140,6 +193,8 @@ public struct ViewerBar: SwiftUI.View {
                     .accessibilityIdentifier("viewer-items")
                 }
                 Button { step(i + 1, n) } label: { Image(systemName: "chevron.right") }.disabled(i + 1 >= n).accessibilityLabel("Next Item")
+                // a list of lists (decision 6A): a stepper a level inside the run
+                LevelSteppers(box: box, value: value)
             }
             Spacer(minLength: 4)
             let p = box.popout
