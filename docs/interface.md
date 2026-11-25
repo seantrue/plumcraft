@@ -256,7 +256,7 @@ Engine → UI:
 | `output.save.question` | engine | A person's save (`ask`) may be answered with a `question` instead of a file (section 15) | Every save writes |
 | `graph.release` | engine | `RunRequest.scope` names the open graph's life, and `graph.release{scope}` frees what the engine kept for it (scratch files) when that life ends. A run goes on being able to use a scope released, as a new one | Kept until the engine stops |
 | `editor.curves` / `editor.mask` | engine | `NodeReport.editor.curves` / `.mask` payloads | The editor opens without engine data |
-| `lists.nested` | engine | The engine runs section 7.6 rule 2's nested lists, and writes and reads a list's `axes` (section 4.5), a watch's `path` and a display's `path` and `levels` (sections 10.2, 10.4). Its memo salt changes with it. A coordinator joins only engines that agree (rule 2) | Today's rule: a step run once per item joins its runs' lists into one flat list |
+| `lists.nested` | engine | The engine runs section 7.6 rule 2's nested lists, and writes and reads a list's `axes` (section 4.5), a watch's `path` and a display's `path` and `levels` (sections 10.2, 10.4). Its memo salt changes with it. A coordinator joins only engines that agree (rule 2). In the Rust SDK an engine that runs graphs with its own core (`Engine::with_core`) lists it only when it declares it (`with_cap("lists.nested")`) | Today's rule: a step run once per item joins its runs' lists into one flat list |
 | `x.<pack>.<op>` | engine | A pack operation exists (`x.vi.export`, `x.vi.deliver`) | The pack's UI is hidden with a reason |
 | `codec.msgpack` | both | Reserved | JSON |
 
