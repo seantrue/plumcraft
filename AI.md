@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Nested lists, slices 5 and 6: the shells step runs and items; the report's graph gives five results (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** As the entry below: track 2 overnight "through to slice 6", on reasonable assumptions.
+
+**What the AI did.** Slice 5: a second stepper for the items inside a run, in egui, the shared Swift viewer bar and the Windows pop-outs, and the per-level count on a face. Slice 6, public part: an engine that runs graphs with its own core no longer lists `lists.nested` unless it declares it (without this an application's engine claimed a rule it did not have). Slice 6, private part, uncommitted in local worktrees: the same rules in the research software's Rust and Python executors and the application's engine. The agent met a case note 27's walk-through had wrong (a whole-list input swept on its own) and settled it in the two research executors only, as an assumption.
+
+**Verification.** The agent's runs: the whole workspace after slice 5 (1,726 of 1,727, the known failure); the crates touched by slice 6 (744); Python 253; Windows built with its 69 tests on the test VM, not launched; the Mac scripted copy and iPad and iPhone simulators showing both steppers and keeping the item while runs step. In the application, a scratch copy of the report's graph: 5 runs of 2 at the driven step, 5 after the slice, 5 at the result. The controller looked at the first and last result pictures, could not tell them apart by eye, and measured them: 1.49% of pixels differ, by at most 13 levels. The full suite ran on the Linux test host. No window of the application was seen: the screen was off.
+
+**Defects.** The first Mac launch squeezed the inner stepper's words out of the bar; fixed and relaunched. Note 27's walk-through of the report's graph was wrong about the mask step, found only when the real graph ran. The public SDKs and the research executors now differ on that case until slice 7. Slices 2 to 4 added public fields to structs that outside code builds field by field, which the agent found when the application's engine stopped compiling.
+
 ### 2026-11-24 — Nested lists, slices 2 to 4: both SDKs, the coordinator and the core (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Overnight: one agent to pursue track 2, through to slice 6" and "Make reasonable assumptions about what I choose if I am not available for a decision". The eight points left open by slice 1 were not answered; the controller told the agent to take the recommendation for each and mark it assumed.
