@@ -5,25 +5,22 @@ import UIKit
 /// The status line along the bottom of the canvas (research note 28): the core's segments
 /// (`DocumentState.statusLine`), drawn and never composed here. It sits on the keyboard layout
 /// guide, so it is above the home indicator and rises with a keyboard; the banner sits above it.
-/// A tap runs a segment's command. A compact width (an iPhone) keeps priority 1 only (the engine,
-/// the run, the newest message); a regular one leaves out 3, then 2, as the width runs out.
+/// A tap runs a segment's command. Each segment is shown whole or not at all (the kit's
+/// `StatusLine.fit`): a compact width (an iPhone) keeps priority 1 only (the engine, the run, the
+/// newest message), in their short forms where it must; a regular one drops the details, then
+/// priority 3 and 2, as the width runs out. The newest message keeps its place.
 @MainActor
 final class StatusBar: UIVisualEffectView {
     var onCommand: ((StatusCommand) -> Void)?
     private let left = UIStackView()
     private let right = UIStackView()
     private var line = StatusLine(on: false)
-    private var placed: [(view: UIView, priority: Int, right: Bool)] = []
-    private(set) var shownLevel = 3
+    /// What the line shows now (the fitting rule's plan).
+    private var plan: [StatusPlaced] = []
+    private var widths: [String: Double] = [:]
     /// The most priorities this width class allows (1 in a compact width).
     var maxLevel = 3 {
-        didSet {
-            guard maxLevel != oldValue else { return }
-            // drawn again: a compact width has no detail lines
-            let l = line
-            line = StatusLine(on: false, segments: [])
-            show(l)
-        }
+        didSet { if maxLevel != oldValue { setNeedsLayout() } }
     }
 
     static let rowHeight: CGFloat = 30
@@ -62,14 +59,7 @@ final class StatusBar: UIVisualEffectView {
     func show(_ l: StatusLine) {
         guard l != line else { return }
         line = l
-        for s in [left, right] { s.arrangedSubviews.forEach { $0.removeFromSuperview() } }
-        placed = []
-        for seg in l.segments {
-            let isRight = seg.side == "right"
-            let v = view(for: seg)
-            (isRight ? right : left).addArrangedSubview(v)
-            placed.append((v, seg.priority, isRight))
-        }
+        plan = []
         setNeedsLayout()
     }
 
@@ -78,21 +68,30 @@ final class StatusBar: UIVisualEffectView {
         super.layoutSubviews()
     }
 
+    /// The segments that fit the width, whole (the kit's rule), drawn when they change.
     private func fit() {
-        let room = bounds.width - safeAreaInsets.left - safeAreaInsets.right - 36
-        var level = maxLevel
-        while level > 1 {
-            var w: CGFloat = 0
-            for p in placed where p.priority <= level {
-                let fw = p.view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
-                w += (p.right ? min(fw, 140) : fw) + 12
-            }
-            if w <= room { break }
-            level -= 1
+        guard bounds.width > 0 else { return }
+        let room = Double(bounds.width - safeAreaInsets.left - safeAreaInsets.right) - 24 - 2
+        let size = traitCollection.preferredContentSizeCategory.rawValue
+        let next = line.fit(room: room, spacing: Double(left.spacing), upTo: maxLevel) { seg, form in
+            let key = "\(seg.id)|\(form.rawValue)|\(seg.text)|\(seg.short ?? "")|\(seg.detail ?? "")|\(seg.busy == true)|\(seg.on == true)|\(size)"
+            if let w = widths[key] { return w }
+            let w = Double(view(for: seg, form: form).systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width)
+            if widths.count > 400 { widths = [:] }
+            widths[key] = w
+            return w
         }
-        shownLevel = level
-        for p in placed where p.view.isHidden != (p.priority > level) { p.view.isHidden = p.priority > level }
+        guard next != plan else { return }
+        plan = next
+        for s in [left, right] { s.arrangedSubviews.forEach { $0.removeFromSuperview() } }
+        for p in plan {
+            (p.segment.side == "right" ? right : left).addArrangedSubview(view(for: p.segment, form: p.form))
+        }
+        onFit?()
     }
+
+    /// The width left out segments or took them back (for the window's status).
+    var onFit: (() -> Void)?
 
     private func color(_ t: StatusTone?, dim: Bool) -> UIColor {
         switch t {
@@ -102,7 +101,8 @@ final class StatusBar: UIVisualEffectView {
         }
     }
 
-    private func view(for seg: StatusSegment) -> UIView {
+    private func view(for seg: StatusSegment, form: StatusForm) -> UIView {
+        let words = StatusPlaced(segment: seg, form: form).text
         let row = UIStackView()
         row.axis = .horizontal
         row.spacing = 5
@@ -126,7 +126,7 @@ final class StatusBar: UIVisualEffectView {
         let font = UIFont.preferredFont(forTextStyle: .footnote)
         if seg.role == "toggle" || seg.role == "action" {
             var cfg: UIButton.Configuration = seg.role == "toggle" && seg.on == true ? .tinted() : .plain()
-            cfg.title = seg.text
+            cfg.title = words
             cfg.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
             cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
                 var a = a
@@ -139,31 +139,21 @@ final class StatusBar: UIVisualEffectView {
             row.addArrangedSubview(b)
         } else {
             let t = UILabel()
-            t.text = seg.text
+            t.text = words
             t.font = font
             t.adjustsFontForContentSizeCategory = true
             t.textColor = color(seg.tone?.word, dim: ["hash", "selection", "run"].contains(seg.role) && seg.busy != true)
             t.lineBreakMode = .byTruncatingTail
-            if maxLevel == 1 {
-                // a compact width (an iPhone): the engine's name and the run cut before the
-                // newest message, which keeps up to 45% of the row
-                t.setContentCompressionResistancePriority(seg.role == "message" ? .defaultLow + 1 : .defaultLow, for: .horizontal)
-                if seg.role == "message" { t.widthAnchor.constraint(lessThanOrEqualToConstant: 170).isActive = true }
-            } else if seg.role == "message" {
-                t.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal)
-                t.widthAnchor.constraint(lessThanOrEqualToConstant: 360).isActive = true
-            }
+            // only the newest message alone on a line too narrow for it is cut
+            if form == .cut { t.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal) }
             row.addArrangedSubview(t)
         }
-        // a detail gives way first: a compact width has none, and a narrow regular one cuts it
-        // before the message
-        if let d = seg.detail, !d.isEmpty, maxLevel > 1 {
+        if form == .full, let d = seg.detail, !d.isEmpty {
             let t = UILabel()
             t.text = d
             t.font = .preferredFont(forTextStyle: .caption2)
             t.textColor = color(seg.detailTone?.word, dim: true)
             t.lineBreakMode = .byTruncatingTail
-            t.setContentCompressionResistancePriority(.defaultLow - 2, for: .horizontal)
             if seg.role == "engine" { t.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true }
             row.addArrangedSubview(t)
         }
@@ -199,7 +189,7 @@ final class StatusBar: UIVisualEffectView {
 
     /// What the bar shows now, for `ui.inspect`'s window status.
     var report: JSONValue {
-        let shown = zip(line.segments, placed).filter { !$0.1.view.isHidden }.map { JSONValue.string($0.0.id) }
-        return ["visible": .bool(!isHidden), "level": .int(Int64(shownLevel)), "shown": .array(shown)]
+        ["visible": .bool(!isHidden), "shown": .array(plan.map { .string($0.segment.id) }),
+         "forms": .array(plan.map { .string("\($0.segment.id):\($0.form.rawValue):\($0.text)") })]
     }
 }

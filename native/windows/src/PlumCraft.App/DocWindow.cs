@@ -60,7 +60,8 @@ public sealed class DocWindow : Window
     readonly StackPanel statusLeft = new() { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center };
     readonly StackPanel statusRight = new() { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
     StatusLine statusLine = StatusLine.Empty;
-    int statusLevel = 3;
+    List<StatusPlaced> statusPlan = [];
+    double statusPlanWidth = -1;
     bool closingFromCore, closed, viewSet;
     public double? FirstFrameMs { get; private set; }
     public DateTime? FirstFrameWall { get; private set; }
@@ -301,9 +302,6 @@ public sealed class DocWindow : Window
         NoteStatus();
     }
 
-    /// <summary>The status line's priorities a width keeps: all three in a wide window, then 2, then 1
-    /// (the engine, the run, the newest message).</summary>
-    static int LevelFor(double width) => width >= 1100 ? 3 : width >= 760 ? 2 : 1;
 
     static Brush ToneBrush(string? tone, bool dim) => tone switch
     {
@@ -312,15 +310,34 @@ public sealed class DocWindow : Window
         _ => (Brush)Application.Current.Resources[dim ? "TextFillColorSecondaryBrush" : "TextFillColorPrimaryBrush"],
     };
 
-    /// <summary>Draw the core's status line: each segment in order, its tone's colour, a spinner while busy,
-    /// a toggle lit when on; a click runs its command. View › Status Line (`on`) hides the bar.</summary>
+    /// <summary>Draw the core's status line: each segment whole or not at all (StatusLine.Fit, measured
+    /// here), in order, its tone's colour, a spinner while busy, a toggle lit when on; a click runs its
+    /// command. View › Status Line (`on`) hides the bar.</summary>
     void DrawStatusLine()
     {
         status.Visibility = statusLine.On ? Visibility.Visible : Visibility.Collapsed;
-        statusLevel = LevelFor(status.ActualWidth > 0 ? status.ActualWidth : 1200);
+        // the bar's width less its padding, the zoom cell and the gaps between the columns
+        var width = status.ActualWidth > 0 ? status.ActualWidth : 1200;
+        zoomText.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var room = width - 24 - zoomText.DesiredSize.Width - 32;
+        var plan = statusLine.Fit(room, statusLeft.Spacing, (seg, form) =>
+        {
+            var r = StatusRow(seg, form);
+            r.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            return r.DesiredSize.Width;
+        });
+        if (plan.SequenceEqual(statusPlan) && Math.Abs(width - statusPlanWidth) < 0.5 && statusLeft.Children.Count + statusRight.Children.Count == plan.Count) return;
+        statusPlan = plan;
+        statusPlanWidth = width;
         statusLeft.Children.Clear();
         statusRight.Children.Clear();
-        foreach (var seg in statusLine.Shown(statusLevel))
+        foreach (var p in plan) (p.Segment.Side == "right" ? statusRight : statusLeft).Children.Add(StatusRow(p.Segment, p.Form));
+    }
+
+    /// <summary>One segment of the status line in one form.</summary>
+    StackPanel StatusRow(StatusSegment seg, StatusForm form)
+    {
+        var words = new StatusPlaced(seg, form).Words;
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row, $"status.{seg.Id}");
@@ -333,13 +350,13 @@ public sealed class DocWindow : Window
             var cmd = seg.Command;
             if (seg.Role == "toggle")
             {
-                var t = new ToggleButton { Content = seg.Text, IsChecked = seg.On == true, FontSize = 12, Padding = new Thickness(6, 1, 6, 1) };
+                var t = new ToggleButton { Content = words, IsChecked = seg.On == true, FontSize = 12, Padding = new Thickness(6, 1, 6, 1) };
                 t.Click += async (_, _) => { if (cmd is not null) await Run(cmd.Id, cmd.Params ?? Jsonv.EmptyObject); };
                 row.Children.Add(t);
             }
             else if (seg.Role == "action")
             {
-                var b = new Button { Content = seg.Text, FontSize = 12, Padding = new Thickness(6, 1, 6, 1) };
+                var b = new Button { Content = words, FontSize = 12, Padding = new Thickness(6, 1, 6, 1) };
                 b.Click += async (_, _) => { if (cmd is not null) await Run(cmd.Id, cmd.Params ?? Jsonv.EmptyObject); };
                 row.Children.Add(b);
             }
@@ -348,11 +365,12 @@ public sealed class DocWindow : Window
                 var dim = seg.Role is "hash" or "selection" or "run" && !seg.Busy;
                 row.Children.Add(new TextBlock
                 {
-                    Text = seg.Text.Replace('\n', ' '), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = ToneBrush(seg.Tone, dim),
-                    MaxLines = 1, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = seg.Role == "message" ? 420 : double.PositiveInfinity,
+                    Text = words.Replace('\n', ' '), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = ToneBrush(seg.Tone, dim),
+                    // only the newest message alone on a line too narrow for it is cut
+                    MaxLines = 1, TextWrapping = TextWrapping.NoWrap, TextTrimming = form == StatusForm.Cut ? TextTrimming.CharacterEllipsis : TextTrimming.None,
                 });
             }
-            if (seg.Detail is { Length: > 0 } det)
+            if (form == StatusForm.Full && seg.Detail is { Length: > 0 } det)
                 row.Children.Add(new TextBlock
                 {
                     Text = det, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Foreground = ToneBrush(seg.DetailTone, true),
@@ -372,7 +390,7 @@ public sealed class DocWindow : Window
                 }
             }
             if (seg.Tooltip is { Length: > 0 } tip) ToolTipService.SetToolTip(row, tip);
-            (seg.Side == "right" ? statusRight : statusLeft).Children.Add(row);
+            return row;
         }
     }
 
@@ -603,7 +621,7 @@ public sealed class DocWindow : Window
             ["firstFrameMs"] = FirstFrameMs, ["zoom"] = c.View.Zoom, ["pan"] = new JsonArray(c.View.Pan.X, c.View.Pan.Y),
             ["selected"] = Model.Selection.Nodes.Count, ["gesture"] = LastGesture, ["pointer"] = new JsonArray([.. CanvasView.Seen.Select(x => (JsonNode)x)]), ["engine"] = Model.Engine.Label, ["dirty"] = Model.State.Dirty,
             ["banner"] = banner.IsOpen ? banner.Message : null,
-            ["statusLine"] = new JsonObject { ["visible"] = status.Visibility == Visibility.Visible, ["level"] = statusLevel, ["shown"] = new JsonArray([.. statusLine.Shown(statusLevel).Select(x => (JsonNode)x.Id)]) }, ["asks"] = asks.Shown, ["showing"] = asks.Showing, ["picking"] = Picking,
+            ["statusLine"] = new JsonObject { ["visible"] = status.Visibility == Visibility.Visible, ["shown"] = new JsonArray([.. statusPlan.Select(x => (JsonNode)x.Segment.Id)]), ["forms"] = new JsonArray([.. statusPlan.Select(x => (JsonNode)$"{x.Segment.Id}:{x.Form}:{x.Words}")]) }, ["asks"] = asks.Shown, ["showing"] = asks.Showing, ["picking"] = Picking,
             ["contextMenu"] = LastMenu, ["popouts"] = popouts.Describe(), ["inspector"] = Inspector.Describe(), ["coreWindows"] = coreWindows.Describe(), ["menus"] = menus.Model.Count, ["toolbar"] = toolbar.PrimaryCommands.Count,
             ["drag"] = CanvasView.DragState, ["fits"] = CanvasView.TargetFits, ["note"] = CanvasView.LastNote, ["editors"] = Editors.Describe(),
             ["focus"] = (Content?.XamlRoot is { } xr ? FocusManager.GetFocusedElement(xr)?.GetType().Name : null), ["undo"] = Model.State.Undo,

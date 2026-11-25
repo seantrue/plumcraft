@@ -3,9 +3,10 @@ import PlumCraftKit
 import PlumCraftModels
 
 /// The status line at the bottom of a document window (research note 28): the core's segments
-/// (`DocumentState.statusLine`), drawn and never composed here. A click runs a segment's command;
-/// a narrow window leaves out priority 3, then 2, keeping the engine, the run and the newest
-/// message. View › Status Line hides it (the core's `on`).
+/// (`DocumentState.statusLine`), drawn and never composed here. A click runs a segment's command.
+/// Each segment is shown whole or not at all (the kit's `StatusLine.fit`): a narrow window drops
+/// the details, then priority 3 and 2, then takes the short forms; the newest message keeps its
+/// place. View › Status Line hides it (the core's `on`).
 @MainActor
 final class StatusBar: NSVisualEffectView {
     /// Runs a segment's command (the core's id and params).
@@ -16,9 +17,10 @@ final class StatusBar: NSVisualEffectView {
     private let right = NSStackView()
     private let rule = NSBox()
     private var line = StatusLine(on: false)
-    /// The views of the line now, each with its priority, for fitting the width.
-    private var placed: [(view: NSView, priority: Int)] = []
-    private(set) var shownLevel = 3
+    /// What the line shows now (the fitting rule's plan).
+    private var plan: [StatusPlaced] = []
+    /// Each segment's width by form and words, measured once.
+    private var widths: [String: Double] = [:]
 
     static let height: CGFloat = 26
 
@@ -61,13 +63,7 @@ final class StatusBar: NSVisualEffectView {
     func show(_ l: StatusLine) {
         guard l != line else { return }
         line = l
-        for s in [left, right] { s.arrangedSubviews.forEach { $0.removeFromSuperview() } }
-        placed = []
-        for seg in l.segments {
-            let v = view(for: seg)
-            (seg.side == "right" ? right : left).addArrangedSubview(v)
-            placed.append((v, seg.priority))
-        }
+        plan = []
         fit()
     }
 
@@ -76,24 +72,26 @@ final class StatusBar: NSVisualEffectView {
         fit()
     }
 
-    /// The most priorities that fit the width: 3, then 2, then 1 (the messages' text is cut
-    /// before any is left out).
+    /// The segments that fit the width, whole (the kit's rule), drawn when they change.
     private func fit() {
-        let room = bounds.width - 20 - 16
-        var level = 3
-        while level > 1 {
-            let views = placed.filter { $0.priority <= level }.map(\.view)
-            let leftW = views.filter { $0.superview === left }.reduce(CGFloat(0)) { $0 + $1.fittingSize.width + left.spacing }
-            // a message may be cut to about 160 points before a left segment goes
-            let rightW = views.filter { $0.superview === right }.reduce(CGFloat(0)) { $0 + min($1.fittingSize.width, 160) + right.spacing }
-            if leftW + rightW <= room { break }
-            level -= 1
+        guard bounds.width > 0 else { return }
+        // the margins, and the gap between the sides being wider than between segments
+        let room = Double(bounds.width) - 20 - 4
+        let next = line.fit(room: room, spacing: Double(left.spacing)) { seg, form in
+            let key = "\(seg.id)|\(form.rawValue)|\(seg.text)|\(seg.short ?? "")|\(seg.detail ?? "")|\(seg.busy == true)"
+            if let w = widths[key] { return w }
+            let w = Double(view(for: seg, form: form).fittingSize.width)
+            if widths.count > 400 { widths = [:] }
+            widths[key] = w
+            return w
         }
-        if level != shownLevel || placed.contains(where: { $0.view.isHidden != ($0.priority > level) }) {
-            shownLevel = level
-            for (v, p) in placed { v.isHidden = p > level }
-            onFit?()
+        guard next != plan else { return }
+        plan = next
+        for s in [left, right] { s.arrangedSubviews.forEach { $0.removeFromSuperview() } }
+        for p in plan {
+            (p.segment.side == "right" ? right : left).addArrangedSubview(view(for: p.segment, form: p.form))
         }
+        onFit?()
     }
 
     // MARK: Segments
@@ -106,7 +104,8 @@ final class StatusBar: NSVisualEffectView {
         }
     }
 
-    private func view(for seg: StatusSegment) -> NSView {
+    private func view(for seg: StatusSegment, form: StatusForm) -> NSView {
+        let words = StatusPlaced(segment: seg, form: form).text
         let row = NSStackView()
         row.orientation = .horizontal
         row.spacing = 5
@@ -134,36 +133,33 @@ final class StatusBar: NSVisualEffectView {
         let dimRoles: Set<String> = ["hash", "selection", "run"]
         let main: NSView
         if seg.role == "toggle" {
-            let b = NSButton(checkboxWithTitle: seg.text, target: self, action: #selector(clicked(_:)))
+            let b = NSButton(checkboxWithTitle: words, target: self, action: #selector(clicked(_:)))
             b.controlSize = .small
             b.font = font
             b.state = seg.on == true ? .on : .off
             main = b
         } else if seg.role == "action" {
-            let b = NSButton(title: seg.text, target: self, action: #selector(clicked(_:)))
+            let b = NSButton(title: words, target: self, action: #selector(clicked(_:)))
             b.bezelStyle = .inline
             b.controlSize = .small
             b.font = font
             main = b
         } else {
-            let t = NSTextField(labelWithString: seg.text)
+            let t = NSTextField(labelWithString: words)
             t.font = font
             t.textColor = color(seg.tone?.word, dim: dimRoles.contains(seg.role) && seg.busy != true)
             t.lineBreakMode = .byTruncatingTail
-            if seg.role == "message" {
-                t.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal)
-                t.widthAnchor.constraint(lessThanOrEqualToConstant: 420).isActive = true
-            }
+            // only the newest message alone on a line too narrow for it is cut
+            if form == .cut { t.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal) }
             main = t
         }
         row.addArrangedSubview(main)
-        if let d = seg.detail, !d.isEmpty {
+        if form == .full, let d = seg.detail, !d.isEmpty {
             let t = NSTextField(labelWithString: d)
             t.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize - 1)
             t.textColor = color(seg.detailTone?.word, dim: true)
             t.lineBreakMode = .byTruncatingTail
-            // a detail gives way before the message
-            t.setContentCompressionResistancePriority(.defaultLow - 2, for: .horizontal)
+            // an engine's own status text, long, is cut at 240 points (whole on hover), as egui does
             if seg.role == "engine" { t.widthAnchor.constraint(lessThanOrEqualToConstant: 240).isActive = true }
             row.addArrangedSubview(t)
         }
@@ -201,7 +197,7 @@ final class StatusBar: NSVisualEffectView {
 
     /// What the bar shows now, for `ui.inspect`'s window status.
     var report: JSONValue {
-        let shown = placed.enumerated().filter { !$0.element.view.isHidden }.compactMap { line.segments.indices.contains($0.offset) ? line.segments[$0.offset].id : nil }
-        return ["visible": .bool(!isHidden), "level": .int(Int64(shownLevel)), "shown": .array(shown.map(JSONValue.string))]
+        ["visible": .bool(!isHidden), "shown": .array(plan.map { .string($0.segment.id) }),
+         "forms": .array(plan.map { .string("\($0.segment.id):\($0.form.rawValue):\($0.text)") })]
     }
 }

@@ -148,6 +148,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         statusBar.translatesAutoresizingMaskIntoConstraints = false
         statusBar.isHidden = true
         statusBar.onCommand = { [weak self] c in self?.statusCommand(c) }
+        statusBar.onFit = { [weak self] in if let self { StatusFile.shared.set("statusBar", self.statusBar.report) } }
         canvasHost.addSubview(statusBar)
         NSLayoutConstraint.activate([
             statusBar.leadingAnchor.constraint(equalTo: canvasHost.leadingAnchor),

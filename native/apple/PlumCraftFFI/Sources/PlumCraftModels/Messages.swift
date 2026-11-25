@@ -536,6 +536,67 @@ public struct StatusLine: Codable, Hashable, Sendable {
     public func shown(upTo priority: Int) -> [StatusSegment] {
         segments.filter { $0.priority <= priority }
     }
+
+    /// What fits a line `room` wide (contract 7.2's document domain, the status line): each
+    /// segment shown whole or not at all, never cut. In turn, until the line fits: the detail
+    /// lines go; the segments of priority 3, then 2, go (the last first); the short forms are
+    /// taken (the lowest priority first); priority 1 goes from the end. The newest message
+    /// (`message.0`) keeps its place throughout and is the one cut, only when it alone is wider
+    /// than the line. `measure` is a segment's width in a form; `spacing` is between segments.
+    public func fit(room: Double, spacing: Double, upTo maxPriority: Int = 3,
+                    measure: (StatusSegment, StatusForm) -> Double) -> [StatusPlaced] {
+        var plan: [StatusPlaced] = segments.filter { $0.priority <= maxPriority }.map {
+            StatusPlaced(segment: $0, form: ($0.detail?.isEmpty == false) ? .full : .text)
+        }
+        func width() -> Double {
+            plan.reduce(0) { $0 + measure($1.segment, $1.form) } + spacing * Double(max(plan.count - 1, 0))
+        }
+        func fits() -> Bool { width() <= room }
+        if fits() { return plan }
+        // the detail lines
+        for k in plan.indices where plan[k].form == .full { plan[k].form = .text }
+        if fits() { return plan }
+        let keep = "message.0"
+        // priority 3, then 2, the last first
+        for p in [3, 2] {
+            while !fits(), let k = plan.lastIndex(where: { $0.segment.priority == p && $0.segment.id != keep }) {
+                plan.remove(at: k)
+            }
+            if fits() { return plan }
+        }
+        // the short forms, the lowest priority first, the last first within one
+        let order = plan.indices.sorted { a, b in
+            plan[a].segment.priority != plan[b].segment.priority ? plan[a].segment.priority > plan[b].segment.priority : a > b
+        }
+        for k in order where plan[k].segment.short?.isEmpty == false && plan[k].segment.id != keep {
+            plan[k].form = .short
+            if fits() { return plan }
+        }
+        // priority 1 from the end
+        while !fits(), let k = plan.lastIndex(where: { $0.segment.id != keep }) {
+            plan.remove(at: k)
+        }
+        // the message alone, wider than the line: cut
+        if let k = plan.firstIndex(where: { $0.segment.id == keep }), !fits() { plan[k].form = .cut }
+        return plan
+    }
+}
+
+/// How a segment is drawn: with its detail line, its text alone, its short form, or (the newest
+/// message alone on a line too narrow for it) cut.
+public enum StatusForm: String, Sendable, Hashable { case full, text, short, cut }
+
+/// A segment as a line too narrow for every one shows it.
+public struct StatusPlaced: Hashable, Sendable {
+    public var segment: StatusSegment
+    public var form: StatusForm
+    public init(segment: StatusSegment, form: StatusForm) {
+        self.segment = segment; self.form = form
+    }
+    /// The words the form shows.
+    public var text: String {
+        form == .short ? (segment.short ?? segment.text) : segment.text
+    }
 }
 
 /// A value that may not parse: `nil` then, never an error.
@@ -567,6 +628,8 @@ public struct StatusSegment: Codable, Hashable, Sendable, Identifiable {
     public var side: String?
     public var priority: Int
     public var text: String
+    /// The text for a narrow line, where one makes sense ("0.51 ms" for "last run 0.51 ms").
+    public var short: String?
     public var detail: String?
     public var detailTone: Open<StatusTone>?
     public var tone: Open<StatusTone>?
@@ -580,7 +643,7 @@ public struct StatusSegment: Codable, Hashable, Sendable, Identifiable {
         self.id = id; self.role = role; self.priority = priority; self.text = text
     }
 
-    enum CodingKeys: String, CodingKey { case id, role, side, priority, text, detail, detailTone, tone, dot, busy, on, command, tooltip }
+    enum CodingKeys: String, CodingKey { case id, role, side, priority, text, short, detail, detailTone, tone, dot, busy, on, command, tooltip }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -589,6 +652,7 @@ public struct StatusSegment: Codable, Hashable, Sendable, Identifiable {
         side = try? c.decodeIfPresent(String.self, forKey: .side)
         priority = (try? c.decodeIfPresent(Int.self, forKey: .priority)) ?? 3
         text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
+        short = try? c.decodeIfPresent(String.self, forKey: .short)
         detail = try? c.decodeIfPresent(String.self, forKey: .detail)
         detailTone = try? c.decodeIfPresent(Open<StatusTone>.self, forKey: .detailTone)
         tone = try? c.decodeIfPresent(Open<StatusTone>.self, forKey: .tone)

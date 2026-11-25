@@ -18,6 +18,12 @@
 //!   each opening the Messages window. They stay until what they say changes: the last error
 //!   until a command clears it, after its banner has gone.
 //!
+//! `short`, where one makes sense, is the segment's text for a narrow line (the engine's name, the
+//! run's time or count, the hash's algorithm). A shell shows a segment whole or not at all: when
+//! the line is too narrow it drops the detail lines, then the segments of priority 3 and 2, then
+//! takes the short forms, then drops priority 1 from the end; the newest message keeps its place
+//! and is cut only when it alone is wider than the line (the Swift kit's `StatusLine.fit`).
+//!
 //! `priority` 1 is what a narrow window keeps (the engine, the run, the newest message); 2 and 3
 //! go first as the width runs out. `on`: View › Status Line (`view.statusLine`).
 
@@ -85,6 +91,11 @@ pub fn model(p: &Parts<'_>, now: Instant) -> Value {
     };
     let mut e = seg("engine", "engine", "left", 1, crate::switchboard::engine_short_label(s, p.link, p.state));
     e["dot"] = json!(dot);
+    // the short form: the engine's name, its state being the dot's
+    let name = &s.catalog().engine.name;
+    if !name.is_empty() {
+        e["short"] = json!(name);
+    }
     let long = crate::switchboard::engine_label(s, p.link, p.state);
     match crate::switchboard::engine_warning(s) {
         Some(w) => {
@@ -124,6 +135,7 @@ pub fn model(p: &Parts<'_>, now: Instant) -> Value {
     let source = plumcraft_proto::handle::Algo::source();
     let algo = plumcraft_proto::handle::Algo::current();
     let mut h = seg("hash", "hash", "left", 3, hash_label(algo.as_str(), &source));
+    h["short"] = json!(algo.as_str());
     h["tooltip"] = json!(format!("Every handle this editor makes and reads is {} ({source}). Engines must use the same.", algo.as_str()));
     out.push(h);
     // the run
@@ -132,13 +144,16 @@ pub fn model(p: &Parts<'_>, now: Instant) -> Value {
         let (done, total) = run.progress();
         let secs = run.elapsed(now).map_or(0.0, |d| d.as_secs_f64());
         let mut r = seg("run", "run", "left", 1, format!("running: {done} of {total} nodes"));
+        r["short"] = json!(format!("{done}/{total}"));
         r["busy"] = json!(true);
         r["detail"] = json!(format!("{secs:.1} s"));
         r["command"] = json!({"id": "run.cancel", "params": {}, "label": "Cancel"});
         r["tooltip"] = json!("Stop this run (Esc): the engine stops between nodes or inside a long one, and the rest of its results are ignored");
         out.push(r);
     } else if let Some(wall) = run.last_wall {
-        let mut r = seg("run", "run", "left", 1, format!("last run {}", crate::run_text::format_ms(wall.as_secs_f64() * 1e3)));
+        let took = crate::run_text::format_ms(wall.as_secs_f64() * 1e3);
+        let mut r = seg("run", "run", "left", 1, format!("last run {took}"));
+        r["short"] = json!(took);
         let engine = run.last_reply.as_ref().map(|r| r.elapsed_ms).filter(|ms| *ms > 0.0);
         let mut detail: Vec<String> = Vec::new();
         if let Some(ms) = engine {
@@ -177,9 +192,12 @@ pub fn model(p: &Parts<'_>, now: Instant) -> Value {
             }
         }
     } else {
-        out.push(seg("run", "run", "left", 1, "not run yet"));
+        let mut r = seg("run", "run", "left", 1, "not run yet");
+        r["short"] = json!("not run");
+        out.push(r);
     }
     let mut a = seg("auto", "toggle", "left", 3, "Auto-run");
+    a["short"] = json!("Auto");
     a["on"] = json!(run.auto);
     a["command"] = json!({"id": "run.auto", "params": {"on": !run.auto}});
     a["tooltip"] = json!("Run 150 ms after every edit");
@@ -257,6 +275,8 @@ mod tests {
         assert_eq!(find(&v, "document")["text"], "Untitled •", "edited");
         assert_eq!(find(&v, "document")["detail"], "1 nodes, 0 wires");
         assert_eq!(find(&v, "run")["text"], "not run yet");
+        assert_eq!(find(&v, "run")["short"], "not run");
+        assert_eq!(find(&v, "auto")["short"], "Auto");
         assert_eq!(find(&v, "auto")["command"]["id"], "run.auto");
         assert!(find(&v, "hash")["text"].as_str().unwrap().starts_with("hash "));
     }

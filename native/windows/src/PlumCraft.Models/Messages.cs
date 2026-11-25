@@ -527,6 +527,16 @@ public sealed record DocumentState
     }
 }
 
+/// <summary>How a segment is drawn: with its detail, its text alone, its short form, or (the newest message
+/// alone on a line too narrow for it) cut.</summary>
+public enum StatusForm { Full, Text, Short, Cut }
+
+/// <summary>A segment as a narrow line shows it.</summary>
+public sealed record StatusPlaced(StatusSegment Segment, StatusForm Form)
+{
+    public string Words => Form == StatusForm.Short ? Segment.Short ?? Segment.Text : Segment.Text;
+}
+
 /// <summary>A command a status-line segment runs on a click: `{id, params, label?}`.</summary>
 public sealed record StatusCommand(string Id, JsonElement? Params, string? Label);
 
@@ -538,6 +548,8 @@ public sealed record StatusSegment
     public string Side { get; init; } = "left";
     public int Priority { get; init; } = 3;
     public string Text { get; init; } = "";
+    /// <summary>The text for a narrow line, where one makes sense ("0.51 ms" for "last run 0.51 ms").</summary>
+    public string? Short { get; init; }
     public string? Detail { get; init; }
     public string? DetailTone { get; init; }
     public string Tone { get; init; } = "info";
@@ -560,6 +572,46 @@ public sealed record StatusLine
     /// <summary>The segments a bar of this many priorities keeps (1: the engine, the run, the newest message).</summary>
     public IEnumerable<StatusSegment> Shown(int upTo) => Segments.Where(s => s.Priority <= upTo);
 
+    /// <summary>What fits a line <paramref name="room"/> wide, each segment whole or not at all (the Swift
+    /// kit's StatusLine.fit, the same steps): the details go; priority 3, then 2, go (the last first); the
+    /// short forms are taken (the lowest priority first); priority 1 goes from the end. The newest message
+    /// keeps its place and is cut only when it alone is wider than the line.</summary>
+    public List<StatusPlaced> Fit(double room, double spacing, Func<StatusSegment, StatusForm, double> measure, int upTo = 3)
+    {
+        var plan = Segments.Where(s => s.Priority <= upTo).Select(s => new StatusPlaced(s, s.Detail is { Length: > 0 } ? StatusForm.Full : StatusForm.Text)).ToList();
+        bool Fits() => plan.Sum(p => measure(p.Segment, p.Form)) + spacing * Math.Max(plan.Count - 1, 0) <= room;
+        if (Fits()) return plan;
+        for (var k = 0; k < plan.Count; k++) if (plan[k].Form == StatusForm.Full) plan[k] = plan[k] with { Form = StatusForm.Text };
+        if (Fits()) return plan;
+        const string keep = "message.0";
+        foreach (var pri in new[] { 3, 2 })
+        {
+            while (!Fits())
+            {
+                var k = plan.FindLastIndex(p => p.Segment.Priority == pri && p.Segment.Id != keep);
+                if (k < 0) break;
+                plan.RemoveAt(k);
+            }
+            if (Fits()) return plan;
+        }
+        var order = Enumerable.Range(0, plan.Count).OrderByDescending(k => plan[k].Segment.Priority).ThenByDescending(k => k).ToList();
+        foreach (var k in order)
+        {
+            if (plan[k].Segment.Short is not { Length: > 0 } || plan[k].Segment.Id == keep) continue;
+            plan[k] = plan[k] with { Form = StatusForm.Short };
+            if (Fits()) return plan;
+        }
+        while (!Fits())
+        {
+            var k = plan.FindLastIndex(p => p.Segment.Id != keep);
+            if (k < 0) break;
+            plan.RemoveAt(k);
+        }
+        var m = plan.FindIndex(p => p.Segment.Id == keep);
+        if (m >= 0 && !Fits()) plan[m] = plan[m] with { Form = StatusForm.Cut };
+        return plan;
+    }
+
     static string? Str(JsonElement o, string k) => o.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     static bool? Bool(JsonElement o, string k) => o.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
 
@@ -578,7 +630,7 @@ public sealed record StatusLine
                 var pri = s.TryGetProperty("priority", out var pv) && pv.ValueKind == JsonValueKind.Number && pv.TryGetInt32(out var pi) ? pi : 3;
                 segs.Add(new StatusSegment
                 {
-                    Id = id, Role = Str(s, "role") ?? "", Side = Str(s, "side") ?? "left", Priority = pri, Text = Str(s, "text") ?? "",
+                    Id = id, Role = Str(s, "role") ?? "", Side = Str(s, "side") ?? "left", Priority = pri, Text = Str(s, "text") ?? "", Short = Str(s, "short"),
                     Detail = Str(s, "detail"), DetailTone = Str(s, "detailTone"), Tone = Str(s, "tone") ?? "info", Dot = Str(s, "dot"),
                     Busy = Bool(s, "busy") ?? false, On = Bool(s, "on"), Command = cmd, Tooltip = Str(s, "tooltip"),
                 });
