@@ -3043,7 +3043,7 @@
     },
     {
       "name": "a path row naming the mask editor opens it by its caption and by the node's menu",
-      "about": "B173: the test engine's ports.masked names the core's mask editor on its path input `mask` (as an application's \"edit an intermediate\" node does). Its row keeps its path field, says \"Edit Mask…\", and a tap on its caption (geometry.locate part caption: the shell measures the row from its caption to its field's end) opens the editor; the node's menu has Edit Mask…, and invoking that item opens it too",
+      "about": "B173: the test engine's ports.masked names the core's mask editor on its path input `mask` (as an application's \"edit an intermediate\" node does). Its row keeps its path field, says \"Edit Mask…\", and a tap on its caption (geometry.locate part caption: the shell measures the row from its caption to its field's end) opens the editor; the node's menu has Edit Mask…, and invoking that item opens it too; a shell whose rows the core hit-tests (`rows`: the Apple shells, a measured driver) takes the caption's tap through the core, the egui editor through its own caption link",
       "half": "edit",
       "needs": [
         "engine:ports"
@@ -3162,6 +3162,7 @@
           }
         },
         {
+          "only": "rows",
           "gesture": {
             "kind": "tap",
             "at": {
@@ -3191,11 +3192,23 @@
           }
         },
         {
+          "only": "rows",
           "call": "scene.get",
           "expect": {
             "/result/view/windows/editors": [
               "$m"
             ]
+          }
+        },
+        {
+          "only": "rows",
+          "call": "ui.invoke",
+          "params": {
+            "command": "node.editor",
+            "params": {
+              "node": "$m",
+              "open": false
+            }
           }
         },
         {
