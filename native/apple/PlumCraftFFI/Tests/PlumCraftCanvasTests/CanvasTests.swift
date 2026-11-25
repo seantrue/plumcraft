@@ -63,6 +63,10 @@ func canvasOnCore(_ name: String) async throws -> (PlumCore, DocumentModel, Laye
     let core = try openCore(name)
     let model = DocumentModel(core: core)
     let host = CALayer()
+    #if canImport(AppKit)
+    // as the Mac's canvas view sets its host (B168: the snapshot follows this flip)
+    host.isGeometryFlipped = true
+    #endif
     let canvas = LayerCanvas(model: model, host: host, screenScale: 2)
     canvas.viewSize = CGSize(width: 1200, height: 800)
     model.start()
