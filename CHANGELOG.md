@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0 (2026-11-25)
+
+The crates and the Python text twin are 0.8.0; the Python SDK (`plumcraft-engine`) is 0.3.0. Crates and SDK only: no new installers. A minor version with breaking changes; the ones known are listed, and with 400 commits since 0.7.0 the list may not be complete. Five crates are published for the first time: `plumcraft-editor-core`, `plumcraft-media`, `plumcraft-chart`, `plumcraft-views` and `plumcraft-build-stamp`.
+
+- **Breaking: seven public types are `#[non_exhaustive]`, with constructors and builders:** `PortValue::List`, `NodeFlags`, `WatchRequest`, `Display`, `Rendition::Rgba8`, `scene::Preview::Rgba8` and `RunState`. Code that built them with a literal uses the constructor (`Display::new`, `PortValue::list_with_axes`, `Rendition::rgba8`, …); a match needs a wildcard arm. A later field is then not a break. `NodeDef` and `Port` stay exhaustive in this release and are due the same change in 0.9.0.
+- **Nested lists** (capability `lists.nested`, `docs/interface.md` 7.6): a step run once per item keeps each run's list as one item, so a list of lists crosses the interface with its axes; viewers step by run and by item.
+- **The editor's core is a crate of its own, with no GUI toolkit:** `plumcraft-editor-core` (preferences, themes as data, the scene, commands, viewers' models, the status line, the acknowledgements) and `plumcraft-media` (values as plain pictures, off the shell's thread). The egui editor is one shell over it; native shells for the Mac, the iPad and Windows, in `native/`, are others over its C ABI (`crates/ffi`, not published). A conformance suite of cases runs against every shell.
+- **Views from every port** (capability and op `view.derive`, `docs/interface.md` 10.5): an array offers the views its kind and rank allow (Pictures, Values, Table, Chart, Plot), and Histogram over all its values at any rank, with no node added to the graph. The reductions are `plumcraft-views` (histogram, statistics, N-d slices), written twice, in Rust and in the Python SDK, and held to shared vectors; the engine that made a value answers, and the editor derives the view itself when it cannot. Charts are `plumcraft-chart`, shared by the core and the engine SDK.
+- **Save Result** in both SDKs (capability `output.save.question`: a save may ask the person instead of writing), results saved with their recipe and opened again as the graph that made them.
+- **Editors in place:** a mask editor and a curves editor in the core, reachable from a node's row and from a group's promoted input; promoted parameters carry the name of the node they came from and can be renamed.
+- **An optional status line** in the native shells, with one fitting rule and short forms; **an Acknowledgements window** (capability and op `acknowledgements`: an engine lists the licences of what it is built from), generated from the lockfile with cargo-about.
+- **The default graph file extension is `.plum`;** `.json` stays accepted.
+- **commonkit 0.3** (the Python SDK needs `pyuncommonkit>=0.3.0,<0.4`).
+- **Python SDK 0.3.0:** the view reductions and `view.derive`, Save Result, acknowledgements, a monotonic clock for timings, list items with their axes. `plumcraft-engine new` writes `plumcraft-engine>=0.3,<0.4`; an engine made before keeps working on 0.2 without the new capabilities.
+- **Known, not fixed:** in the Windows shell a running node's face is never seen in "progress" (B176), and the status line is not fitted again when an open window is narrowed (B177); neither is in a published crate. `main`'s CI sometimes fails in its cache clean-up after every check has passed.
+
 ## 0.7.0 (2026-11-13)
 
 The crates and the Python text twin are 0.7.0; the Python SDK (`plumcraft-engine`) is 0.2.0, with `pyuncommonkit>=0.2.0`. Crates and SDK only: no new installers. A minor version, with breaking changes below.
