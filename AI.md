@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — A withdrawn dependency in the lockfile (B179) (Claude Fable 5.2)
+
+**What the maintainer said.** "investigate async-executor 1.14.0 in PlumCraft's lockfile is yanked on crates.io"; then "d0 it".
+
+**What the AI did.** Read crates.io's version list and the crate's changelog, traced the dependency (Linux only, through accessibility), and moved the one lockfile entry to 1.14.1 with the acknowledgements remade (4 lines).
+
+**Verification.** The Linux gate on the branch, Linux being the only platform that builds the crate. The remade list was compared with the old one: only the version differs.
+
+**Defects.** The controller saw the warning while packaging 0.8.0 and published without looking into it, so the two app crates on crates.io carry a lockfile naming a version with a known memory fault. That the withdrawal was for the use-after-free is read from the changelog; crates.io gives no reason.
+
 ### 2026-11-25 — 0.8.0 released: 24 crates and the Python SDK 0.3.0 (Claude Fable 5.2)
 
 **What the maintainer said.** "release 0.8"; the six decisions; and, shown the gate and packaging results and the list of remaining steps, "go".
