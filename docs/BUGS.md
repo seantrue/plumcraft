@@ -4,6 +4,14 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B178. CI: the gate job sometimes fails in its cache clean-up after every check has passed
+
+- Reported: 2026-11-25, seen by the controlling session three times in one day (the first run of #225, `main`'s merge commit of #225, the first run of #228); not reported by the maintainer.
+- Report: the `gate` job fails in "Post Run astral-sh/setup-uv@v6" with "Timeout (300s) when waiting for lock on" the setup-uv cache folder; every step before it, the tests among them, has passed. A re-run of the job passed each time it was tried.
+- Effect: `main` is protected on this job, so a merge waits for a re-run; `main`'s own run after a merge can show red with nothing wrong.
+- Cause: not looked for.
+- Issue: none
+
 ### B177. Windows: the status line is not fitted again when an open window is narrowed
 
 - Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
