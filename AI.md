@@ -20,6 +20,26 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — A withdrawn dependency in the lockfile (B179) (Claude Fable 5.2)
+
+**What the maintainer said.** "investigate async-executor 1.14.0 in PlumCraft's lockfile is yanked on crates.io"; then "d0 it".
+
+**What the AI did.** Read crates.io's version list and the crate's changelog, traced the dependency (Linux only, through accessibility), and moved the one lockfile entry to 1.14.1 with the acknowledgements remade (4 lines).
+
+**Verification.** The Linux gate on the branch, Linux being the only platform that builds the crate. The remade list was compared with the old one: only the version differs.
+
+**Defects.** The controller saw the warning while packaging 0.8.0 and published without looking into it, so the two app crates on crates.io carry a lockfile naming a version with a known memory fault. That the withdrawal was for the use-after-free is read from the changelog; crates.io gives no reason.
+
+### 2026-11-25 — 0.8.0 released: 24 crates and the Python SDK 0.3.0 (Claude Fable 5.2)
+
+**What the maintainer said.** "release 0.8"; the six decisions; and, shown the gate and packaging results and the list of remaining steps, "go".
+
+**What the AI did.** Merged the release into the dev branch and `main` (#227, #228), tagged `plumcraft-v0.8.0` and `v0.3.0` on `main`'s merge commit, published the 24 crates with one `cargo publish --workspace` from the tagged commit, and built, checked and uploaded the SDK. Two packaging fixes in the editor core went in before any upload (one manifest line; 39 links and 39 include paths).
+
+**Verification.** The Linux gate on the final commit (1,798 of 1,799, the known failure; Python 340 passed); CI on both pull requests; `cargo package --workspace` verifying all 24 crates from their packaged files; the SDK wheel installed in a fresh environment, where it reported its version, imported the view code and ran its command; afterwards crates.io showed 0.8.0 for all 24 and PyPI showed 0.3.0. Not checked: an install of the published crates by someone else's project, other than the application's build that followed.
+
+**Defects.** Both packaging faults were in AI-written work (the editor core was split out during the native shells work) and had sat unseen because nothing before this had packaged that crate; the verifying build caught them, the first only with a build-less pass and the second only with the full one, which the controller had first skipped as "not run". The controller's first changelog and ledger said `cargo publish --dry-run` was not run; the packaging run replaced it. CI's cache clean-up failed the gate job on #228 with every check passed (B178), the third time that day, after the controller had called the first a one-off.
+
 ### 2026-11-25 — 0.8.0 prepared: versions, lockfiles, changelog (Claude Fable 5.2)
 
 **What the maintainer said.** "release 0.8"; then "Decisions: 1A; 2B; 3A; 4A; 5A; 6B"; with the test VM down, "I am logged in to the linux hosted desktop. Use that."; and "m 226" for the licence fix.

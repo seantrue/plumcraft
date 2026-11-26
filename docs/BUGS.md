@@ -4,6 +4,14 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B178. CI: the gate job sometimes fails in its cache clean-up after every check has passed
+
+- Reported: 2026-11-25, seen by the controlling session three times in one day (the first run of #225, `main`'s merge commit of #225, the first run of #228); not reported by the maintainer.
+- Report: the `gate` job fails in "Post Run astral-sh/setup-uv@v6" with "Timeout (300s) when waiting for lock on" the setup-uv cache folder; every step before it, the tests among them, has passed. A re-run of the job passed each time it was tried.
+- Effect: `main` is protected on this job, so a merge waits for a re-run; `main`'s own run after a merge can show red with nothing wrong.
+- Cause: not looked for.
+- Issue: none
+
 ### B177. Windows: the status line is not fitted again when an open window is narrowed
 
 - Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
@@ -271,6 +279,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B179. The lockfile held a withdrawn `async-executor` (1.14.0), which has a use-after-free
+
+- Reported: 2026-11-25, seen by the controlling session as a warning while packaging 0.8.0; the maintainer: "investigate async-executor 1.14.0 in PlumCraft's lockfile is yanked on crates.io", then, shown the finding, "d0 it".
+- Found: 1.14.0 is yanked on crates.io (no yank message). The crate's changelog for 1.14.1: "Fix use-after-free when a `Waker` fires during `Executor::drop` (regression in 1.14.0)". It reaches the lockfile on Linux only, through the egui editor's accessibility support (`accesskit_unix`, `zbus`); not on the Mac, Windows or the iPad, and not through the native shells. Not checked: whether that code can reach the fault.
+- Effect on 0.8.0: the published library crates carry no lockfile. `plumcraft-editor` and `plumcraft-view` 0.8.0 carry it, so `cargo install --locked` of either on Linux takes 1.14.0; a plain `cargo install` does not.
+- Fixed: 2026-11-25, branch `fix/b179-async-executor`. The lockfile entry is 1.14.1; the acknowledgements are remade and differ only by that version.
+- Issue: none
 
 ### B174. Acknowledgements: the editor core itself is listed under a licence text that belongs to adapted code
 
