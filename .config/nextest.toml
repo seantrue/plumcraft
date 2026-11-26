@@ -1,0 +1,25 @@
+# nextest profiles used by .test-affected.toml. `default` stays what CI runs.
+
+[profile.default]
+# Flag anything over 30 s; kill after 5 min so one hung engine process can't eat an hour.
+slow-timeout = { period = "30s", terminate-after = 10 }
+failure-output = "final"
+
+# Tier 0: stop at the first failure, short output, skip the tests that dominate wall time.
+[profile.quick]
+fail-fast = true
+failure-output = "final"
+success-output = "never"
+status-level = "fail"
+slow-timeout = { period = "15s", terminate-after = 8 }
+# Measured 2026-11-13 (4-core Linux, no debuginfo): these five are 143 s of 414 s summed and set
+# the wall-clock floor (42 s). They build and drive whole Python engines; tier 1 still runs them.
+default-filter = """not (
+    (package(plumcraft) & (binary(generated_engine) | binary(engine_manifest)))
+  | (package(plumcraft-audio) & binary(panic_hunt))
+)"""
+
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
+junit = { path = "junit.xml" }   # per-test timings: feed back into QUICK_EXCLUDE
