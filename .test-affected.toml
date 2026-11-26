@@ -1,0 +1,62 @@
+# affected.py config for plumcraft. Tier 0 = affected crates, one hash algorithm;
+# tier 1 = affected crates, both algorithms (as CI); tier 2 = the AGENTS.md gate.
+
+[rust]
+runner = "cargo nextest run"
+args = "--all-features"
+# Bookkeeping files CI already ignores, plus packaging (never built in tests).
+ignore = ["*.md", "docs/*", "packaging/*", ".github/*", "claude-debug/*", "assets/*"]
+
+# A fresh run folder per invocation, as CI: the one_algo tests fail on a reused store.
+pre = "run=$(mktemp -d)"
+
+[rust.env]
+COMMONKIT_HASH = "b3"
+COMMONKIT_TEST_RUN = "$run"
+COMMONKIT_STORE_ROOT = "$run/store"
+COMMONKIT_MARK_DIR = "$run/marks"
+PLUMCRAFT_CRAFT_ROOT = "$run/craft"
+COMMONKIT_STORE_MIN_FREE_GB = "2"     # the store declines to publish under 8 GB free otherwise
+
+[rust.tier0]
+args = "--all-features --profile quick"
+
+[rust.tier1]
+args = "--all-features --no-fail-fast"
+
+# Rust tests that read files outside any crate.
+[[rust.map]]
+glob = "python/*"                      # plumcraft-text's mode-2 engine is python/ (crates/text/src/lib.rs)
+packages = ["plumcraft-text", "plumcraft-coordinator"]
+
+[[rust.map]]
+glob = "plums/*"
+packages = ["plumcraft-ui"]
+
+[[rust.map]]
+glob = "examples/*"
+packages = ["plumcraft-ui"]
+
+[[python]]
+root = "python"
+cmd = "uv run pytest"
+tests = "tests"
+src = ["src/*", "pyproject.toml", "uv.lock", "tests/*"]
+pre = "run=$(mktemp -d)"
+env = { COMMONKIT_HASH = "b3", COMMONKIT_TEST_RUN = "$run", COMMONKIT_STORE_ROOT = "$run/store", COMMONKIT_MARK_DIR = "$run/marks", COMMONKIT_STORE_MIN_FREE_GB = "2" }
+tier0 = "-x -q"
+tier1 = "-q"
+tier2 = "-q"
+
+# Shared vectors the Python SDK reads too (globs repo-relative, tests root-relative).
+[[python.map]]
+glob = "crates/proto/fixtures/memo_canon.json"
+tests = ["tests/test_memo.py"]
+
+[[python.map]]
+glob = "crates/proto/fixtures/slices.json"
+tests = ["tests/test_vary.py"]
+
+[[python.map]]
+glob = "crates/engine/tests/fixtures/color.json"
+tests = ["tests/test_color.py"]
