@@ -219,6 +219,11 @@ pub struct RowPackage {
     pub url: String,
     /// Its copyright lines (and, under Apache-2.0, what its appendix adds), every one kept.
     pub notices: Vec<String>,
+    /// The other licences it is also under (B175): a package whose licence is an AND of several
+    /// (a font package under three, a crate with a separately licensed part) is in each of their
+    /// rows, saying so here, so two rows naming it don't read as a duplicate. Empty for most.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<String>,
 }
 
 /// One text under a licence row: the licence's text once, or a variant, with whose it is.
@@ -291,14 +296,27 @@ pub fn coalesce(a: &Acknowledgements) -> Vec<LicenceRow> {
                                 }
                             }
                         }
-                        None => packages.push(RowPackage { name: p.name.clone(), version: p.version.clone(), url: p.url.clone(), notices: notices.clone() }),
+                        None => packages.push(RowPackage {
+                            name: p.name.clone(),
+                            version: p.version.clone(),
+                            url: p.url.clone(),
+                            notices: notices.clone(),
+                            also: Vec::new(),
+                        }),
                     }
                 }
                 let who: Vec<String> =
                     g.packages.iter().map(|p| if p.version.is_empty() { p.name.clone() } else { format!("{} {}", p.name, p.version) }).collect();
                 let is_standard = subs[k] == standard;
                 match texts.iter_mut().find(|t| t.standard && is_standard) {
-                    Some(t) => t.packages.extend(who),
+                    Some(t) => {
+                        // a package with two files of the same text is named once (B175)
+                        for w in who {
+                            if !t.packages.contains(&w) {
+                                t.packages.push(w);
+                            }
+                        }
+                    }
                     None if is_standard => {
                         let head = g.text.find(APACHE_END).map_or(g.text.clone(), |i| g.text[..i + APACHE_END.len()].to_owned());
                         let body: Vec<&str> = head.lines().filter(|l| !is_notice(l)).collect();
@@ -314,6 +332,13 @@ pub fn coalesce(a: &Acknowledgements) -> Vec<LicenceRow> {
         })
         .collect();
     rows.sort_by_key(|r| r.licence.to_lowercase());
+    // B175: a package in more than one row says which others it is in
+    let under: Vec<(String, Vec<String>)> = rows.iter().map(|r| (r.licence.clone(), r.packages.iter().map(|p| p.name.clone()).collect())).collect();
+    for r in &mut rows {
+        for p in &mut r.packages {
+            p.also = under.iter().filter(|(l, names)| *l != r.licence && names.contains(&p.name)).map(|(l, _)| l.clone()).collect();
+        }
+    }
     rows
 }
 
@@ -506,6 +531,104 @@ mod tests {
         assert!(apache.texts[0].text.contains("(c) You must retain") && apache.texts[0].text.ends_with("END OF TERMS AND CONDITIONS"));
         let zopfli = apache.packages.iter().find(|p| p.name == "zopfli").unwrap();
         assert!(zopfli.notices.iter().any(|n| n == "Copyright 2011 Google Inc."), "{:?}", zopfli.notices);
+    }
+
+    fn raw_groups() -> Vec<Value> {
+        let v: Value = serde_json::from_str(RUST).unwrap();
+        v["groups"].as_array().unwrap().clone()
+    }
+
+    /// B174: the workspace's own crates are under the workspace's licence (its own MIT text, the
+    /// expression `MIT OR Apache-2.0`), never a text that came with adapted code, and every member
+    /// is there; the adapted code keeps its own entry in the window.
+    #[test]
+    fn the_workspace_crates_are_under_the_workspace_licence_only() {
+        let ours = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../LICENSE-MIT")).unwrap();
+        let mut seen = Vec::new();
+        for g in raw_groups() {
+            for p in g["packages"].as_array().unwrap() {
+                if p["source"].is_null() {
+                    let name = p["name"].as_str().unwrap().to_owned();
+                    assert_eq!(g["text"].as_str().unwrap().trim(), ours.trim(), "{name} is under another text");
+                    assert_eq!(p["expression"], "MIT OR Apache-2.0", "{name}");
+                    assert!(!seen.contains(&name), "{name} twice");
+                    seen.push(name);
+                }
+            }
+        }
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+        let mut members = 0;
+        for dir in ["crates", "apps"] {
+            for e in std::fs::read_dir(format!("{root}/{dir}")).unwrap().flatten() {
+                members += usize::from(e.path().join("Cargo.toml").exists());
+            }
+        }
+        assert_eq!(seen.len(), members, "every workspace crate, clarified in about.toml: {seen:?}");
+        let a = editor();
+        let solid = a.groups.iter().find(|g| g.packages.iter().any(|p| p.name.starts_with("SolidCraft"))).unwrap();
+        assert!(solid.text.contains("SolidCraft contributors"));
+        assert!(!a.groups.iter().any(|g| g.packages.iter().any(|p| p.name.starts_with("plumcraft"))), "the window leaves PlumCraft's own crates out");
+    }
+
+    /// B175, decision 5A: a crate that offers a choice of licences is under one of them, at every
+    /// version (zune-jpeg 0.4 was under Zlib, 0.5 under MIT).
+    #[test]
+    fn a_crate_with_a_choice_of_licences_is_under_one() {
+        let mut under: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> = Default::default();
+        for g in raw_groups() {
+            for p in g["packages"].as_array().unwrap() {
+                let e = p["expression"].as_str().unwrap_or("");
+                if p["source"].is_string() && e.contains(" OR ") && !e.contains(" AND ") {
+                    under.entry(p["name"].as_str().unwrap().to_owned()).or_default().insert(g["licence"].as_str().unwrap().to_owned());
+                }
+            }
+        }
+        assert!(under.len() > 100, "{}", under.len());
+        let several: Vec<_> = under.iter().filter(|(_, l)| l.len() > 1).collect();
+        assert!(several.is_empty(), "{several:?}");
+    }
+
+    /// B175: no package twice in a row, nor twice among one text's packages; one under a licence
+    /// twice only for two different files (a bundled part's own), never the same file twice;
+    /// one in several rows (an AND of licences) says which others.
+    #[test]
+    fn no_package_is_twice_in_a_row_and_several_rows_say_so() {
+        let mut texts: std::collections::BTreeMap<(String, String, String), Vec<String>> = Default::default();
+        for g in raw_groups() {
+            for p in g["packages"].as_array().unwrap() {
+                if p["source"].is_string() {
+                    let key = (g["licence"].as_str().unwrap().to_owned(), p["name"].as_str().unwrap().to_owned(), p["version"].as_str().unwrap().to_owned());
+                    // the same file twice (whitespace aside); two files of one licence with different
+                    // copyright holders (rfd's own and a bundled part's) are two notices, both kept
+                    texts.entry(key).or_default().push(g["text"].as_str().unwrap().split_whitespace().collect::<Vec<_>>().join(" "));
+                }
+            }
+        }
+        for (key, subs) in &texts {
+            let mut unique = subs.clone();
+            unique.sort();
+            unique.dedup();
+            assert_eq!(unique.len(), subs.len(), "{key:?} has the same text twice");
+        }
+        for shell in [None, Some("mac"), Some("windows"), Some("egui")] {
+            for r in coalesce(&editor_for(shell)) {
+                let mut seen = std::collections::BTreeSet::new();
+                for p in &r.packages {
+                    assert!(seen.insert((p.name.clone(), p.version.clone())), "{} {} twice under {}", p.name, p.version, r.licence);
+                }
+                for t in &r.texts {
+                    let mut labels = t.packages.clone();
+                    labels.sort();
+                    labels.dedup();
+                    assert_eq!(labels.len(), t.packages.len(), "a label twice under {}", r.licence);
+                }
+            }
+        }
+        let rows = coalesce(&editor_for(Some("egui")));
+        let fonts = rows.iter().find(|r| r.licence == "OFL-1.1").unwrap().packages.iter().find(|p| p.name == "epaint_default_fonts").unwrap();
+        assert_eq!(fonts.also, vec!["MIT", "Ubuntu-font-1.0"]);
+        let mit = rows.iter().find(|r| r.licence == "MIT").unwrap();
+        assert!(mit.packages.iter().filter(|p| p.also.is_empty()).count() > 300, "most packages are in one row");
     }
 
     #[test]
