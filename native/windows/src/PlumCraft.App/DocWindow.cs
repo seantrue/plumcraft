@@ -197,6 +197,7 @@ public sealed class DocWindow : Window
         Grid.SetColumn(statusRight, 1);
         status.Children.Add(statusRight);
         status.SizeChanged += (_, _) => DrawStatusLine();
+        root.SizeChanged += (_, _) => DrawStatusLine();
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(status, "Status line");
         Grid.SetColumn(zoomText, 2);
         status.Children.Add(zoomText);
@@ -316,8 +317,10 @@ public sealed class DocWindow : Window
     void DrawStatusLine()
     {
         status.Visibility = statusLine.On ? Visibility.Visible : Visibility.Collapsed;
-        // the bar's width less its padding, the zoom cell and the gaps between the columns
-        var width = status.ActualWidth > 0 ? status.ActualWidth : 1200;
+        // the bar's width less its padding, the zoom cell and the gaps between the columns. The window's
+        // content gives it: the bar's own width is its laid-out segments' once they are wider than the
+        // window (its first column is Auto), so a window made narrower never fitted them again
+        var width = root.ActualWidth > 0 ? root.ActualWidth : status.ActualWidth > 0 ? status.ActualWidth : 1200;
         zoomText.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
         var room = width - 24 - zoomText.DesiredSize.Width - 32;
         var plan = statusLine.Fit(room, statusLeft.Spacing, (seg, form) =>
