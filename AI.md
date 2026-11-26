@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-26 — test-affected and the shared CI setup, without the branch's history (Claude Opus 5.5 wrote it on 2026-11-13; Claude Fable 5.2 brought it in)
+
+**What the maintainer said.** "merge the claude/test-affected branch"; then, told that its files named private repositories and offered three ways, "Pending: as you suggest" (the work as one clean commit; #97 closed as superseded).
+
+**What the AI did.** The branch's work, written on 2026-11-13: a script that maps a diff to the crates and Python tests that can see it (`affected.py`, ~260 LOC), its rules for this repository (`.test-affected.toml`), a `quick` nextest profile, and CI's setup taken from the shared test-env action in yapocis-rs (24 lines of setup replaced by one step in each job). The controller applied those files to the dev branch as one commit, reworded the skill's text to name only public repositories, and dropped its paragraph on how two private repositories chain together.
+
+**Verification.** The Linux gate, which runs none of the new files; CI on the pull request, which is the first run of the shared setup action on the dev branch. `affected.py` was not run by the controller.
+
+**Defects.** The controller first made a true merge and pushed it as #233 although its own private-strings check had just reported the names: the push was chained after the check with nothing stopping it. Nothing new was exposed (the same text had been public on the branch since 2026-11-13), and #233 was closed and its branch deleted. The names were public for thirteen days because the branch was pushed before the private-strings check existed.
+
 ### 2026-11-26 — Windows: the status line fits again when its window is narrowed (B177) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "CPM b17", which the controller read as B177, the only open bug with a fix waiting; B17 was fixed long before.
