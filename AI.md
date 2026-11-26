@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — 0.8.0 prepared: versions, lockfiles, changelog (Claude Fable 5.2)
+
+**What the maintainer said.** "release 0.8"; then "Decisions: 1A; 2B; 3A; 4A; 5A; 6B"; with the test VM down, "I am logged in to the linux hosted desktop. Use that."; and "m 226" for the licence fix.
+
+**What the AI did.** Bumped the crates to 0.8.0 and the Python SDK to 0.3.0 (versions, the exact pins, the text twin, the generator's range and its goldens), refreshed both lockfiles, remade the acknowledgements and checked that the list changed only by the version, and wrote the changelog entry from the merged pull requests and the capability list (~40 lines of changelog; the rest is version strings).
+
+**Verification.** On the Mac: fmt clean; the protocol tests pass; the Python suite 339 of 340. The Linux gate ran on the pushed branch. Not run: `cargo publish --dry-run`.
+
+**Defects.** The controller's first Mac runs showed three failures that were its own doing, not the release's: two editor-core tests need the engine programs a narrow build does not make, and one Python test needs the test store the gate sets. The changelog's list of breaking changes is from the ledgers, not from a tool comparing the public interface, and says so.
+
 ### 2026-11-25 — The licence list: the project's own crates misattributed, and repeats (B174, B175) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Bug: There are duplicate entries in the license list."; asked where, "Two different rows. Just remember it for now."; then "release 0.8", and on the checklist page "Decisions: 1A; 2B; 3A; 4A; 5A; 6B": fix B174 before the release and B175 with it.
