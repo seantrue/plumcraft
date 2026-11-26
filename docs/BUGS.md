@@ -4,21 +4,23 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B175. Acknowledgements: duplicate entries in the licence list
+### B177. Windows: the status line is not fitted again when an open window is narrowed
 
-- Reported: 2026-11-25
-- Report: "Bug: There are duplicate entries in the license list."
-- Context: an application built on the Mac shell and its iPad build, from the dev branch at `63e9aad` (the first builds with the Acknowledgements window, FR4, after the licence variations were coalesced to a row per licence).
-- Answer (the maintainer, 2026-11-25), asked whether the repeat was in a row's title, inside an opened row, or across two licence rows: "Two different rows. Just remember it for now." So: a package appearing under two licences' rows. Not to be fixed yet.
-- Counted in the generated list (`crates/editor-core/acknowledgements/rust.json`, 2026-11-25; not looked at in the window): at least five packages are under more than one licence (two are a crate under both of the licences it offers a choice of, where decision 5A was to take the permissive one; one is a font package rightly under three); 14 package-and-version pairs appear more than once, some twice within one licence; 33 names are present at more than one version.
+- Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
+- Report: a window started narrow fits its status line, and widening re-fits it, but narrowing an open window does not: the segments are cut at the window's edge, Auto-run and the zoom go off screen, and no short forms are used.
+- Context: the Windows shell at `984db78` on the x64 Windows test guest, the maintainer signed in on its desktop.
+- Cause (the agent's, with a launch behind it): `DocWindow.DrawStatusLine` took its room from the bar's own width, and the bar's first column sizes to its content, so once laid out wide it stays wide.
+- Fix, made and not published: an agent's local commit `664f144` on `fix/win-status-narrow` (seven lines in `DocWindow.cs`), launched at four widths. Not asked for by the maintainer; waiting for their word.
+- Seen once, not chased: a window started narrow showed no status line for its first seconds, before any run.
 - Issue: none
 
-### B174. Acknowledgements: the editor core itself is listed under a licence text that belongs to adapted code
+### B176. Windows: a running node's face is never seen in "progress"; two conformance cases fail
 
-- Reported: 2026-11-25, found by an agent remaking the list; not reported by the maintainer.
-- Report: `bash scripts/acknowledgements.sh` attributes the crate `plumcraft-editor-core` to "MIT, SolidCraft contributors". cargo-about picks up `crates/editor-core/acknowledgements/other/solidcraft-mit.txt`, which sits inside the crate's own folder, as that crate's licence. The checked-in `crates/editor-core/acknowledgements/rust.json` carries the entry, so the Acknowledgements window shows it.
-- Cause (as the agent read it; not confirmed by a second look): the licence file of the adapted code lives under the crate's folder, where the tool looks for the crate's own licence.
-- Fix, proposed and not made: a clarification for the crate in `about.toml`, or the `other` folder moved out of the crate.
+- Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
+- Report: against the running Windows app, the conformance edit half passes 42 of 44. The two failures, on every run and each alone: "the engine's run as the faces show it: queued, progress, error, skipped, done, its time and its text" and "the engine's run changed while it goes: stale, cancel, latest wins, a partial re-run, auto-run". The slow test node goes from queued straight to done ("wanted progress, got done" after 20 s of polling).
+- Reproduce: wire `text.literal` to `text.slow` (`seconds` 0.9) to `text.upper`; `run.start`; poll `scene.get`: the slow node never shows `run.state: "progress"`.
+- Where (the agent's reading, not diagnosed further): the Windows shell, probably how it pumps the core's events. On the same guest the C ABI's own conformance run passes both cases, so the core built for Windows does stream progress.
+- Also seen there, in the C ABI test's harness on Windows and not in the app: `graph.saveAs` refuses a verbatim path joined with "/", and the test engine is looked for under `target\release` when a `--target` folder is used.
 - Issue: none
 
 ### B170. Mac: the offscreen picture of a window hosting an AppKit view draws the SwiftUI controls as a black band when the screen is locked
@@ -269,6 +271,29 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B174. Acknowledgements: the editor core itself is listed under a licence text that belongs to adapted code
+
+- Reported: 2026-11-25, found by an agent remaking the list; not reported by the maintainer.
+- Report: `bash scripts/acknowledgements.sh` attributes the crate `plumcraft-editor-core` to "MIT, SolidCraft contributors". cargo-about picks up `crates/editor-core/acknowledgements/other/solidcraft-mit.txt`, which sits inside the crate's own folder, as that crate's licence. The checked-in `crates/editor-core/acknowledgements/rust.json` carries the entry, so the Acknowledgements window shows it.
+- Cause (as the agent read it; not confirmed by a second look): the licence file of the adapted code lives under the crate's folder, where the tool looks for the crate's own licence.
+- Fix, proposed and not made: a clarification for the crate in `about.toml`, or the `other` folder moved out of the crate.
+- Cause, confirmed: the licence tool took an adapted project's text, kept inside the crate's folder, as the crate's own. Seven other workspace crates had no licence file and got the tool's blank template text.
+- Fixed: 2026-11-25, branch `pr/fix-b174-b175`. `about.toml` names every workspace crate as MIT OR Apache-2.0 with the workspace's two files; the seven crates gain the licence links the others have. The window never listed the project's own crates, so the fault was in the shipped data; the adapted project's acknowledgement still shows as its own entry.
+- Issue: none
+
+
+### B175. Acknowledgements: duplicate entries in the licence list
+
+- Reported: 2026-11-25
+- Report: "Bug: There are duplicate entries in the license list."
+- Context: an application built on the Mac shell and its iPad build, from the dev branch at `63e9aad` (the first builds with the Acknowledgements window, FR4, after the licence variations were coalesced to a row per licence).
+- Answer (the maintainer, 2026-11-25), asked whether the repeat was in a row's title, inside an opened row, or across two licence rows: "Two different rows. Just remember it for now." So: a package appearing under two licences' rows. Not to be fixed yet.
+- Counted in the generated list (`crates/editor-core/acknowledgements/rust.json`, 2026-11-25; not looked at in the window): at least five packages are under more than one licence (two are a crate under both of the licences it offers a choice of, where decision 5A was to take the permissive one; one is a font package rightly under three); 14 package-and-version pairs appear more than once, some twice within one licence; 33 names are present at more than one version.
+- Decided (the maintainer, 2026-11-25, on the release checklist): "6B", fix it together with B174.
+- Fixed: 2026-11-25, branch `pr/fix-b174-b175`. A crate offering a choice of licences is under one at every version (one image decoder had one version under each); the same text taken twice from two files of one crate is taken once; a crate that needs several licences at once stays in each row and says "(also under …)" beside its name inside the row, from a new optional `also` on a row's package; a bundled part's own notice is kept and the package listed once. Not checked by the maintainer. Left: in the closed rows' titles a font package still names itself in three rows, since it is under all three.
+- Issue: none
+
 
 ### B173. Mac: a click on a node's mask row does not open the mask editor
 

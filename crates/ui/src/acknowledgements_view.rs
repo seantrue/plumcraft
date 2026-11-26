@@ -90,6 +90,9 @@ fn list(ui: &mut egui::Ui, name: &str, list: &Value, salt: &str) {
                     .filter(|s| !s.is_empty())
                     .collect::<Vec<_>>()
                     .join("  ");
+                // B175: a package under several licences says so, so two rows don't read as a duplicate
+                let also: Vec<&str> = p["also"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                let line = if also.is_empty() { line } else { format!("{line}  (also under {})", also.join(", ")) };
                 ui.add(egui::Label::new(line).selectable(true));
                 for n in p["notices"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                     ui.horizontal(|ui| {

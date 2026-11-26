@@ -23,7 +23,7 @@ plumcraft-coordinator = { workspace = true }
 plumcraft-craft = { workspace = true }
 plumcraft-engine = { workspace = true }
 plumcraft-graph = { workspace = true }
-plumcraft-scratch = { path = "../scratch" }
+plumcraft-scratch = { workspace = true }
 plumcraft-host = { workspace = true }
 # Values as plain pictures, decoded on workers (src/values.rs ties a document's engine link to it).
 plumcraft-media = { workspace = true }

@@ -148,7 +148,9 @@ struct LicenceGroupRow: SwiftUI.View {
             if open {
                 if let n = group["name"].string, !n.isEmpty { Text(n).font(.subheadline.bold()) }
                 ForEach(Array((group["packages"].array ?? []).enumerated()), id: \.offset) { _, p in
+                    let also = (p["also"].array ?? []).compactMap(\.string)
                     let line = [p["name"].string, p["version"].string, p["url"].string].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  ")
+                        + (also.isEmpty ? "" : "  (also under \(also.joined(separator: ", ")))")
                     VStack(alignment: .leading, spacing: 2) {
                         Text(line).font(.footnote).textSelection(.enabled)
                         ForEach(Array((p["notices"].array ?? []).enumerated()), id: \.offset) { _, n in

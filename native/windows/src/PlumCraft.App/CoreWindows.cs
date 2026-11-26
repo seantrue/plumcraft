@@ -435,6 +435,9 @@ public sealed class AcknowledgementsWindow : PanelWindow
                     foreach (var p in r.Get("packages").Items())
                     {
                         var line = string.Join("  ", new[] { p.Get("name").Str(), p.Get("version").Str(), p.Get("url").Str() }.Where(s => !string.IsNullOrEmpty(s)));
+                        // B175: a package under several licences says so
+                        var also = p.Get("also").Items().Select(x => x.Str()).OfType<string>().ToList();
+                        if (also.Count > 0) line += $"  (also under {string.Join(", ", also)})";
                         inner.Children.Add(new TextBlock { Text = line, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap });
                         foreach (var note in p.Get("notices").Items())
                             inner.Children.Add(new TextBlock { Text = note.Str() ?? "", FontSize = 11, Margin = new Thickness(16, 0, 0, 0), IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Brush("TextFillColorSecondaryBrush") });
