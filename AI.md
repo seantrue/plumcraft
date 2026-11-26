@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — The licence list: the project's own crates misattributed, and repeats (B174, B175) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Bug: There are duplicate entries in the license list."; asked where, "Two different rows. Just remember it for now."; then "release 0.8", and on the checklist page "Decisions: 1A; 2B; 3A; 4A; 5A; 6B": fix B174 before the release and B175 with it.
+
+**What the AI did.** The agent confirmed B174's cause and found a second misattribution beside it (seven workspace crates under the tool's blank template text), clarified all 27 workspace crates, applied the earlier rule that a choice of licences lists once, and gave a package that needs several licences an "(also under …)" note in each row (~130 LOC in the core, small changes in the three shells, three tests).
+
+**Verification.** The agent's: the editor core, egui and C ABI tests, the Swift tests, fmt and clippy over the workspace, a scripted Mac launch reading the rows, and a Windows build. The controller looked at the egui picture, which shows the twelve rows closed, not the opened rows the agent described. The Linux gate ran on the published branch.
+
+**Defects.** Both faults were in the list merged that morning (FR4) and noticed by neither its agent nor the controller; an agent on other work found the first and the maintainer the second. During this fix the agent's build filled the Mac's disk to 2 GB free and a test run failed for want of space before it cleared its build folder. The Windows launch the maintainer asked for before the release could not be made: the test VM was not reachable.
+
 ### 2026-11-25 — FR6 slice 3: a histogram of a 3-D array from its port, no node added (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Taking a histogram of 3d data should be as natural as 1/2d."; "Exploratory data visualization should not require altering the graph."; and, on what follows, "We're going to stop and merge to main after slice 3". The maintainer also asked the agent why a store variable was unset in its Linux runs, which is how the fault below was found.
