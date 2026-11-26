@@ -46,7 +46,7 @@ pub const OTHER: &[Other] = &[
     Other {
         licence: "OFL-1.1",
         name: "SIL Open Font License 1.1",
-        text: include_str!("../../ui/assets/fonts/OFL-Inter.txt"),
+        text: include_str!("../assets/fonts/OFL-Inter.txt"),
         packages: &[("Inter (font: Regular, SemiBold)", "", "https://github.com/rsms/inter")],
         shells: Shells::Egui,
     },
