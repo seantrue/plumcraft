@@ -516,11 +516,300 @@ path = "LICENSE-MIT"
 license = "MIT"
 checksum = "b47fb719a40d9ef9c8e3be525c41ce129c46d613cfc96a91bddd7c19dcebf7a1"
 
-# zune-jpeg (MIT OR Apache-2.0 OR Zlib): only the Zlib text is in its repository, online
+# zune-jpeg (MIT OR Apache-2.0 OR Zlib): MIT, as decision 5A takes the first permissive option, for
+# both versions (B175: 0.4 was under Zlib, 0.5 under MIT, one crate in two rows). 0.4's commit has
+# no MIT file, so the file is the one 0.5 was published from (its crate folder at that commit), online
 [zune-jpeg.clarify]
-license = "Zlib"
+license = "MIT"
+override-git-commit = "31d81fed7551c8ccea456d9d8e2b1fd8bebb6995"
 [[zune-jpeg.clarify.git]]
-path = "LICENSE-ZLIB"
-license = "Zlib"
-checksum = "7fa429541e55b1509909e058f2d21a37467e4958ec713b357f6e0cf9dc4ee352"
+path = "crates/zune-jpeg/LICENSE-MIT"
+license = "MIT"
+checksum = "94949dd83279f3ca3d0ce42ce0fc154d0ed817444454ee2925e903eec93949b6"
 
+# miniz_oxide (MIT OR Zlib OR Apache-2.0): its MIT text once (B175: `LICENSE` and `LICENSE-MIT.md`
+# are the same text but for a blank line, and both were taken, so it was listed twice under MIT)
+[miniz_oxide.clarify]
+license = "MIT"
+[[miniz_oxide.clarify.files]]
+path = "LICENSE-MIT.md"
+license = "MIT"
+checksum = "799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d"
+
+
+# The workspace's own crates (B174): each is MIT OR Apache-2.0, with the workspace's own files at its
+# root. Without this, cargo about read whatever licence text it found in a crate's folder: the
+# editor core's was the adapted SolidCraft code's MIT text (acknowledgements/other/), and seven
+# crates with no file got the bare template. The window leaves these crates out (they are the
+# program itself, `Acknowledgements::from_cargo_about`), but `rust.json` should still say the truth.
+# A new workspace crate is added here; a test fails until it is.
+[plumcraft.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-array.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-array.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-array.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-audio.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-audio.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-audio.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-automation.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-automation.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-automation.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-build-stamp.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-build-stamp.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-build-stamp.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-chart.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-chart.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-chart.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-conform.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-conform.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-conform.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-coordinator.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-coordinator.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-coordinator.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-craft.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-craft.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-craft.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-editor.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-editor.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-editor.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-editor-core.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-editor-core.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-editor-core.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-engine.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-engine.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-engine.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-ffi.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-ffi.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-ffi.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-graph.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-graph.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-graph.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-host.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-host.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-host.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-layout.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-layout.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-layout.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-media.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-media.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-media.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-ports.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-ports.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-ports.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-proto.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-proto.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-proto.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-scratch.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-scratch.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-scratch.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-session.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-session.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-session.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-store.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-store.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-store.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-svg.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-svg.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-svg.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-text.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-text.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-text.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-ui.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-ui.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-ui.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-view.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-view.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-view.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+[plumcraft-views.clarify]
+license = "MIT OR Apache-2.0"
+[[plumcraft-views.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a153dfc4da3e15d6fc84cec874fbdad8857dacb8cdbfbc4d27142e372eb85347"
+[[plumcraft-views.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"

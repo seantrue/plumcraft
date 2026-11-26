@@ -50,6 +50,22 @@ fn acknowledgements_open_from_about_and_from_help_and_search() {
     shot(&mut h, "fr4-egui-acknowledgements-apache");
     h.get_by_label("Copyright 2011 Google Inc.");
     assert_eq!(h.get_all_by_label_contains("TERMS AND CONDITIONS FOR USE").count(), 1, "the text once");
+    // B175: a crate under two licences at once (brotli: BSD-3-Clause AND MIT) is in both rows,
+    // each saying where else it is
+    common::click_at(&mut h, egui::pos2(at.x as f32, at.y as f32));
+    h.key_press(egui::Key::End);
+    for _ in 0.."zopfli".len() {
+        h.key_press(egui::Key::Backspace);
+    }
+    h.event(egui::Event::Text("brotli".into()));
+    h.run_steps(4);
+    h.get_by_label_contains("BSD-3-Clause: ").click();
+    h.run_steps(4);
+    h.get_by_label_contains("MIT: ").click();
+    h.run_steps(4);
+    shot(&mut h, "b175-egui-also-under");
+    h.get_by_label_contains("(also under MIT)");
+    h.get_by_label_contains("(also under BSD-3-Clause)");
     h.state_mut().run("app.acknowledgements", &serde_json::json!({"open": false}));
     h.run_steps(4);
     assert!(h.query_by_label("Acknowledgements").is_none());

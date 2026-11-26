@@ -1,4 +1,4 @@
 {"made_by": "cargo about", "groups": [
 {{#each licenses}}{{#unless @first}},
-{{/unless}}{"licence": {{{json id}}}, "name": {{{json name}}}, "text": {{{json text}}}, "packages": [{{#each used_by}}{{#unless @first}}, {{/unless}}{"name": {{{json crate.name}}}, "version": {{{json crate.version}}}, "url": {{{json crate.repository}}}, "source": {{{json crate.source}}}}{{/each}}]}{{/each}}
+{{/unless}}{"licence": {{{json id}}}, "name": {{{json name}}}, "text": {{{json text}}}, "packages": [{{#each used_by}}{{#unless @first}}, {{/unless}}{"name": {{{json crate.name}}}, "version": {{{json crate.version}}}, "url": {{{json crate.repository}}}, "source": {{{json crate.source}}}, "expression": {{{json crate.license}}}}{{/each}}]}{{/each}}
 ]}
