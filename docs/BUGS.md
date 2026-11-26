@@ -4,6 +4,25 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B177. Windows: the status line is not fitted again when an open window is narrowed
+
+- Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
+- Report: a window started narrow fits its status line, and widening re-fits it, but narrowing an open window does not: the segments are cut at the window's edge, Auto-run and the zoom go off screen, and no short forms are used.
+- Context: the Windows shell at `984db78` on the x64 Windows test guest, the maintainer signed in on its desktop.
+- Cause (the agent's, with a launch behind it): `DocWindow.DrawStatusLine` took its room from the bar's own width, and the bar's first column sizes to its content, so once laid out wide it stays wide.
+- Fix, made and not published: an agent's local commit `664f144` on `fix/win-status-narrow` (seven lines in `DocWindow.cs`), launched at four widths. Not asked for by the maintainer; waiting for their word.
+- Seen once, not chased: a window started narrow showed no status line for its first seconds, before any run.
+- Issue: none
+
+### B176. Windows: a running node's face is never seen in "progress"; two conformance cases fail
+
+- Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
+- Report: against the running Windows app, the conformance edit half passes 42 of 44. The two failures, on every run and each alone: "the engine's run as the faces show it: queued, progress, error, skipped, done, its time and its text" and "the engine's run changed while it goes: stale, cancel, latest wins, a partial re-run, auto-run". The slow test node goes from queued straight to done ("wanted progress, got done" after 20 s of polling).
+- Reproduce: wire `text.literal` to `text.slow` (`seconds` 0.9) to `text.upper`; `run.start`; poll `scene.get`: the slow node never shows `run.state: "progress"`.
+- Where (the agent's reading, not diagnosed further): the Windows shell, probably how it pumps the core's events. On the same guest the C ABI's own conformance run passes both cases, so the core built for Windows does stream progress.
+- Also seen there, in the C ABI test's harness on Windows and not in the app: `graph.saveAs` refuses a verbatim path joined with "/", and the test engine is looked for under `target\release` when a `--target` folder is used.
+- Issue: none
+
 ### B170. Mac: the offscreen picture of a window hosting an AppKit view draws the SwiftUI controls as a black band when the screen is locked
 
 - Reported: 2026-11-23, by an agent, as a related note under B148; split out 2026-11-25 when B148 was closed.
