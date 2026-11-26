@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-26 — Windows: the status line fits again when its window is narrowed (B177) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "CPM b17", which the controller read as B177, the only open bug with a fix waiting; B17 was fixed long before.
+
+**What the AI did.** The agent that launched the Windows shell before 0.8.0 found the fault and fixed it there (7 lines in `DocWindow.cs`): the bar's first column sizes to its content, so the bar's own width never shrank; the room is now taken from the window's content. The controller published it.
+
+**Verification.** The agent's launch on the x64 Windows test guest at four widths, with pictures; the controller looked at none of them. The Linux gate ran on the branch, though nothing it builds changed.
+
+**Defects.** The fault was in the status line as first written for Windows (FR3), which was checked only at the width each window started with. The agent made the fix without being asked; it waited unpublished for the maintainer's word.
+
 ### 2026-11-25 — A withdrawn dependency in the lockfile (B179) (Claude Fable 5.2)
 
 **What the maintainer said.** "investigate async-executor 1.14.0 in PlumCraft's lockfile is yanked on crates.io"; then "d0 it".

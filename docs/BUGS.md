@@ -12,16 +12,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause: not looked for.
 - Issue: none
 
-### B177. Windows: the status line is not fitted again when an open window is narrowed
-
-- Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
-- Report: a window started narrow fits its status line, and widening re-fits it, but narrowing an open window does not: the segments are cut at the window's edge, Auto-run and the zoom go off screen, and no short forms are used.
-- Context: the Windows shell at `984db78` on the x64 Windows test guest, the maintainer signed in on its desktop.
-- Cause (the agent's, with a launch behind it): `DocWindow.DrawStatusLine` took its room from the bar's own width, and the bar's first column sizes to its content, so once laid out wide it stays wide.
-- Fix, made and not published: an agent's local commit `664f144` on `fix/win-status-narrow` (seven lines in `DocWindow.cs`), launched at four widths. Not asked for by the maintainer; waiting for their word.
-- Seen once, not chased: a window started narrow showed no status line for its first seconds, before any run.
-- Issue: none
-
 ### B176. Windows: a running node's face is never seen in "progress"; two conformance cases fail
 
 - Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
@@ -279,6 +269,17 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B177. Windows: the status line is not fitted again when an open window is narrowed
+
+- Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
+- Report: a window started narrow fits its status line, and widening re-fits it, but narrowing an open window does not: the segments are cut at the window's edge, Auto-run and the zoom go off screen, and no short forms are used.
+- Context: the Windows shell at `984db78` on the x64 Windows test guest, the maintainer signed in on its desktop.
+- Cause (the agent's, with a launch behind it): `DocWindow.DrawStatusLine` took its room from the bar's own width, and the bar's first column sizes to its content, so once laid out wide it stays wide.
+- Fixed: 2026-11-26, branch `pr/fix-b177` (the maintainer: "CPM b17"). The status line measures its room from the window's content, not from the bar's own width, and fits again when that changes size (seven lines in `DocWindow.cs`). Launched by the agent on the x64 Windows test guest at four widths (1200 to 560, 420, 300, and 1200 again). Not checked by the maintainer; not built for ARM64.
+- Seen once, not chased: a window started narrow showed no status line for its first seconds, before any run.
+- Issue: none
+
 
 ### B179. The lockfile held a withdrawn `async-executor` (1.14.0), which has a use-after-free
 
