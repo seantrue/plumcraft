@@ -164,6 +164,10 @@ pub struct Config {
     pub engine_folder: Option<PathBuf>,
     /// More engine manifests to read (`engines.manifests`, spec 16.6: `--engine-manifest`'s).
     pub manifests: Vec<PathBuf>,
+    /// The application's own folders of graphs (`dirs.bundled`, B185: its samples, its styles,
+    /// shipped with it and read-only): a graph from a file in one, or from an unchanged copy of
+    /// one of their files, isn't held for review (`plumcraft_session::trust::is_own`).
+    pub bundled: Vec<PathBuf>,
     /// The `uv` that installs engines (`engines.uv`; tests give a stand-in). None: found as a
     /// manifest's `uv` is (`$PLUMCRAFT_UV`, PATH, the login shell's PATH, the usual folders).
     pub uv: Option<PathBuf>,
@@ -229,12 +233,19 @@ impl Default for Config {
             document_windows: false,
             engine_folder: None,
             manifests: Vec::new(),
+            bundled: Vec::new(),
             uv: None,
         }
     }
 }
 
 impl Config {
+    /// The trust file (B185): `trusted.json` beside the preferences file, as the egui editor
+    /// keeps it beside its own (`plumcraft_editor_core::prefs::trust_path_for`); none without one.
+    pub fn trust_file(&self) -> Option<PathBuf> {
+        self.prefs.as_ref().map(|p| p.with_file_name("trusted.json"))
+    }
+
     pub fn parse(bytes: &[u8]) -> Result<Config, String> {
         if bytes.is_empty() {
             return Ok(Config::default());
@@ -284,6 +295,7 @@ impl Config {
                 None => dir_of(o, "engines")?,
             },
             manifests: manifest_files(engines.and_then(|e| e.get("manifests")))?,
+            bundled: bundled_dirs(o.get("dirs").and_then(|d| d.get("bundled")))?,
             uv: match engines.and_then(|e| e.get("uv")) {
                 None | Some(Value::Null) => None,
                 Some(Value::String(p)) if !p.trim().is_empty() && p.len() <= 4096 && !p.contains('\0') => Some(PathBuf::from(p)),
@@ -410,6 +422,24 @@ fn prefs_path(o: &serde_json::Map<String, Value>) -> Result<Option<PathBuf>, Str
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(d)) if !d.trim().is_empty() && d.len() <= 4096 && !d.contains('\0') => Ok(Some(PathBuf::from(d).join("prefs.json"))),
         Some(_) => Err("config: dirs.prefs must be a folder's path".into()),
+    }
+}
+
+/// The most folders `dirs.bundled` names.
+const MAX_BUNDLED: usize = 16;
+
+/// `dirs.bundled`: a folder's path, or a list of them.
+fn bundled_dirs(v: Option<&Value>) -> Result<Vec<PathBuf>, String> {
+    let bad = || "config: dirs.bundled must be a folder's path or a list of them".to_owned();
+    let one = |p: &Value| match p.as_str() {
+        Some(p) if !p.trim().is_empty() && p.len() <= 4096 && !p.contains('\0') => Ok(PathBuf::from(p)),
+        _ => Err(bad()),
+    };
+    match v {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::String(_)) => v.map(one).into_iter().collect(),
+        Some(Value::Array(a)) if a.len() <= MAX_BUNDLED => a.iter().map(one).collect(),
+        Some(_) => Err(bad()),
     }
 }
 
@@ -969,6 +999,14 @@ impl Core {
         let app = config.app.clone();
         let dirs = (config.caches.clone(), config.scratch.clone());
         let share = config.share;
+        // B185: every document holds a graph from elsewhere for review, as the egui editor does,
+        // with approvals beside the preferences; with no preferences folder, held all the same,
+        // approvals lasting as long as the core
+        let approvals = match config.trust_file() {
+            Some(f) => plumcraft_session::trust::Approvals::File(f),
+            None => plumcraft_session::trust::Approvals::Memory(Arc::default()),
+        };
+        let bundled = config.bundled.clone();
         let thread_shared = Arc::clone(&shared);
         let thread = std::thread::Builder::new()
             .name("plumcraft-ffi-core".into())
@@ -1001,6 +1039,8 @@ impl Core {
                     app,
                     dirs,
                     share,
+                    approvals,
+                    bundled,
                     document_windows,
                     quitting: None,
                 };
@@ -1190,6 +1230,9 @@ struct Worker {
     dirs: (Option<PathBuf>, Option<PathBuf>),
     /// The config's `platform.share`, given to every document.
     share: bool,
+    /// Where every document's approvals live (B185), and the application's own folders.
+    approvals: plumcraft_session::trust::Approvals,
+    bundled: Vec<PathBuf>,
 }
 
 /// A refusal with the contract's `code` (`docs/shell-interface.md` 6.1).
@@ -1212,6 +1255,9 @@ impl Worker {
         let (target, extras) = self.engines_for(&session, &opening);
         session.engines.current = Some(target.clone());
         session.engines.can_attach = true;
+        // held for review before anything opens (B185)
+        session.set_own_folders(self.bundled.clone());
+        session.set_approvals(self.approvals.clone());
         // copies for apps and exported values in the shell's caches, never a folder derived from
         // HOME (B42: an iOS app may not write at its container's root)
         if let Some(caches) = &self.dirs.0 {

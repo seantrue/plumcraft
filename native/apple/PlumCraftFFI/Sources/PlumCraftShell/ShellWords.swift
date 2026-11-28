@@ -68,6 +68,17 @@ public enum AskWords {
         pick(field)?.choices.first { $0.value == value }?.label ?? value
     }
 
+    /// A prompt's message: its text, then what it lists (`lines`, in the core's words: what a
+    /// workflow from elsewhere reads, writes and runs on, the files an upload would send), so an
+    /// alert shows what is being asked about (B185: the Review prompt's list was dropped).
+    public static func promptMessage(_ params: JSONValue) -> String {
+        let text = params["text"].string ?? ""
+        let lines = (params["lines"].array ?? []).compactMap(\.string)
+        if lines.isEmpty { return text }
+        let list = lines.joined(separator: "\n")
+        return text.isEmpty ? list : "\(text)\n\n\(list)"
+    }
+
     /// A prompt's button words: the core's own for the answer (`labels`, by answer: "Save as PNG
     /// anyway"), else the Apple platforms' words for it ([`buttonTitle(_:kind:)`]).
     public static func buttonTitle(_ answer: String, prompt params: JSONValue) -> String {

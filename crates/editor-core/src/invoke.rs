@@ -194,8 +194,52 @@ impl Prompt {
         }
     }
 
-    /// The `prompt` ask's params: `{kind, title, text, answers, labels, then?, detail?}`;
-    /// `labels` are the buttons' words, by answer.
+    /// What the prompt lists, as lines of plain text in its own words (B185): what a review
+    /// shows (its sections as the egui editor draws them), the files an upload would send. Empty
+    /// for a prompt whose text says it all. A shell that draws `detail` itself needn't show them.
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        match self {
+            Prompt::Review(r) => {
+                let mut touches = |title: &str, list: &[plumcraft_session::trust::Touch]| {
+                    if list.is_empty() {
+                        return;
+                    }
+                    out.push(format!("{title}:"));
+                    for t in list {
+                        out.push(match (&t.path, &t.set_by) {
+                            (Some(p), _) => format!("  {p}  ({})", t.title),
+                            (None, by) => format!("  set by {} ({}.{})", by.as_deref().unwrap_or("another node"), t.title, t.port),
+                        });
+                    }
+                };
+                touches("Writes", &r.writes);
+                touches("Reads", &r.reads);
+                if !r.actions.is_empty() {
+                    out.push("Nodes that act:".into());
+                    out.extend(r.actions.iter().map(|a| format!("  {}  ({})", a.title, a.kind)));
+                }
+                if !r.unknown.is_empty() {
+                    out.push(format!("Unknown node types: {}", r.unknown.join(", ")));
+                }
+                if r.more > 0 {
+                    out.push(format!("and {} more", r.more));
+                }
+                if !r.engines.is_empty() {
+                    out.push(format!("Engines: {}", r.engines.join(", ")));
+                }
+                if out.is_empty() {
+                    out.push(format!("{} node{}; it names no files and no node acts.", r.nodes, if r.nodes == 1 { "" } else { "s" }));
+                }
+            }
+            Prompt::Uploads(files) => out.extend(files.iter().map(|(to, file)| format!("{file}  to {to}"))),
+            Prompt::Discard { .. } | Prompt::SaveShape { .. } | Prompt::PruneMasks { .. } => {}
+        }
+        out
+    }
+
+    /// The `prompt` ask's params: `{kind, title, text, answers, labels, then?, detail?, lines?}`;
+    /// `labels` are the buttons' words, by answer; `lines`, what it lists as text ([`Prompt::lines`]).
     pub fn params(&self) -> Value {
         let labels: Map<String, Value> =
             self.answers().iter().filter_map(|a| PromptAnswer::from_name(a).map(|x| ((*a).to_owned(), Value::from(x.label())))).collect();
@@ -206,6 +250,10 @@ impl Prompt {
             Prompt::Uploads(files) => p["detail"] = Value::Array(files.iter().map(|(to, file)| json!({"to": to, "file": file})).collect()),
             Prompt::SaveShape { shape, npy, .. } => p["detail"] = json!({"shape": shape, "npy": npy}),
             Prompt::PruneMasks { files, folder, .. } => p["detail"] = json!({"folder": folder, "files": files}),
+        }
+        let lines = self.lines();
+        if !lines.is_empty() {
+            p["lines"] = json!(lines);
         }
         p
     }

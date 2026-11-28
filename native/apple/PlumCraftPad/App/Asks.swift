@@ -182,7 +182,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate, PHPickerViewContro
             })
             present(alert, for: a)
         case .prompt?:
-            let alert = UIAlertController(title: p["title"].string ?? AppID.name, message: p["text"].string, preferredStyle: .alert)
+            let alert = UIAlertController(title: p["title"].string ?? AppID.name, message: AskWords.promptMessage(p), preferredStyle: .alert)
             let answers = (p["answers"].array ?? []).compactMap(\.string)
             for ans in answers.isEmpty ? ["ok"] : answers {
                 let style: UIAlertAction.Style = ans == "cancel" ? .cancel : ans == "discard" ? .destructive : .default
@@ -547,17 +547,23 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate, PHPickerViewContro
     private func shareSheet(_ a: Ask, file: URL, done word: String) {
         guard let host, FileManager.default.fileExists(atPath: file.path) else { return answer(a, ["error": "the file isn't there"]) }
         let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
-        sheet.popoverPresentationController?.sourceView = host.view
-        sheet.popoverPresentationController?.sourceRect = CGRect(x: host.view.bounds.midX, y: host.view.bounds.midY, width: 1, height: 1)
+        // over whatever the graph shows now (B184: a value's Share from its pop-out's sheet was
+        // presented from the graph, which was already presenting the pop-out, and never showed)
+        var top: UIViewController = host
+        while let p = top.presentedViewController, !p.isBeingDismissed { top = p }
+        sheet.popoverPresentationController?.sourceView = top.view
+        sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
         sheet.completionWithItemsHandler = { [weak self] _, completed, _, error in
             Task { @MainActor in
+                StatusFile.shared.set("sharing", .null)
                 guard let self else { return }
                 if let error { self.answer(a, ["error": .string(error.localizedDescription)]) }
                 else if completed { self.answer(a, ["notice": .string(word)]) }
                 else { self.cancel(a) }
             }
         }
-        host.present(sheet, animated: true)
+        top.present(sheet, animated: true)
+        StatusFile.shared.set("sharing", ["file": .string(file.lastPathComponent)])
     }
 
     /// `ui.screenshot`: the canvas as it draws itself.

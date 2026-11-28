@@ -33,6 +33,8 @@ fn editor(make: fn() -> plumcraft_engine::Engine, pack: &'static str) -> Egui {
     assert_eq!(launcher.load_manifests(), Vec::<String>::new());
     let mut app = EditorApp::new(Session::new(make().schema())).with_launcher(&launcher).with_link(linked(make));
     app.session.engines.choices = launcher.choices();
+    // a trust file of the suite's own, as the editor has one (B185's case): a graph from elsewhere is held
+    app.session.set_trust_file(plumcraft_scratch::dir(&format!("conformance-trust-{pack}")).join("trusted.json"));
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app: &mut EditorApp| app.show(ui), app);
     h.run_steps(6);
     Egui(h, pack)
