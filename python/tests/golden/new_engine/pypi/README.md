@@ -54,7 +54,7 @@ weather-engine register                     # every editor now offers it
 
 `weather-engine register` writes `~/.config/plumcraft/engines/weather.toml`, a manifest that starts the engine with the Python it was installed with. It works wherever the tool lives, and opens the demo the wheel carries (`examples/` goes in the wheel). `weather-engine unregister` removes it, and `weather-engine register --print` shows it without writing. It leaves a checkout's `scripts/install` link alone unless given `--force`.
 
-The wheel names `plumcraft-engine>=0.3,<0.4` as a dependency, so the installer gets the SDK from PyPI, as this project does.
+The wheel names `plumcraft-engine>=0.3.1,<0.4` as a dependency, so the installer gets the SDK from PyPI, as this project does.
 
 ## PyCharm
 
@@ -101,6 +101,6 @@ The PlumCraft SDK's `python/README.md` lists every annotation.
 
 ## The SDK
 
-`pyproject.toml` takes the SDK from PyPI: `plumcraft-engine>=0.3,<0.4`, the release `uv.lock` holds. `uv lock --upgrade-package plumcraft-engine` moves it to the newest release in that range.
+`pyproject.toml` takes the SDK from PyPI: `plumcraft-engine>=0.3.1,<0.4`, the release `uv.lock` holds. `uv lock --upgrade-package plumcraft-engine` moves it to the newest release in that range.
 
 To run against a PlumCraft checkout instead (an SDK change of your own, or one not released yet), add a `[tool.uv.sources]` table to `pyproject.toml` with a path, `plumcraft-engine = { path = "<checkout>/python", editable = true }`, or a pinned commit, `plumcraft-engine = { git = "ssh://git@github.com/seantrue/plumcraft", subdirectory = "python", rev = "<commit>" }`, then `uv sync`. `plumcraft-engine new --sdk path` or `--sdk git@REV` writes one.

@@ -54,8 +54,9 @@ RESERVED = ("plumcraft", "core", "x")
 SCRIPTS = ("check", "nodes", "run", "serve", "conform", "cli-run", "editor", "install", "uninstall", "_plumcraft.sh")
 ID = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 GIT_URL = "ssh://git@github.com/seantrue/plumcraft"
-# The SDK a new engine needs.
-SDK_PIN = "plumcraft-engine>=0.3,<0.4"
+# The SDK a new engine needs: 0.3.1 is the first whose `register` finds the `examples/demo.plum`
+# this generator writes (0.3.0's looks for `demo.json` only, and registers the engine without a demo).
+SDK_PIN = "plumcraft-engine>=0.3.1,<0.4"
 # What the README says of the SDK, for each `--sdk` (B183: it described a path for every one).
 _PATH_SOURCE = '`plumcraft-engine = { path = "<checkout>/python", editable = true }`'
 _GIT_SOURCE = f'`plumcraft-engine = {{ git = "{GIT_URL}", subdirectory = "python", rev = "<commit>" }}`'
