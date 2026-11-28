@@ -12,20 +12,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Open question: which Send To: the application's own list of places to send a result (the spike's), or something the egui editor shows that the native shells do not?
 - Issue: none
 
-### B183. `plumcraft-engine new --sdk pypi` writes a README that describes a path or git SDK
-
-- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
-- Report: the generated README says "`pyproject.toml` takes the SDK from `[tool.uv.sources]`" and that the wheel "needs a release that has `register`", neither true when the SDK comes from PyPI.
-- Context: `python/src/plumcraft_engine/templates/engine/`. Not confirmed by the controller.
-- Issue: none
-
-### B182. An engine's acknowledgements can name a licence that is not an SPDX id
-
-- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
-- Report: `plumcraft_engine.acknowledgements.from_distributions` falls back to a package's classifier or free-form licence text when it has no `License-Expression`, so it answers "MIT License" or "Apache Software License" where spec 6.3 asks for an SPDX id or expression. The editor groups by licence, so "MIT License" and "MIT" would be separate rows (the second part not checked).
-- Context: `python/src/plumcraft_engine/acknowledgements.py`. Seen for `duckdb`, `pytz` and `opencv-python-headless`.
-- Issue: none
-
 ### B181. An application's iPad build does not carry the icons
 
 - Reported: 2026-11-28
@@ -315,6 +301,24 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B183. `plumcraft-engine new --sdk pypi` writes a README that describes a path or git SDK
+
+- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
+- Report: the generated README says "`pyproject.toml` takes the SDK from `[tool.uv.sources]`" and that the wheel "needs a release that has `register`", neither true when the SDK comes from PyPI.
+- Context: `python/src/plumcraft_engine/templates/engine/`. Not confirmed by the controller.
+- Cause: confirmed by a failing test: for `--sdk pypi` the README named a `[tool.uv.sources]` table that is not written and a release "that has `register`".
+- Fixed: 2026-11-28, branch `fix/sdk-b182-b183`: the README's SDK text is written for each choice (PyPI, a path, a pinned commit); a golden for `--sdk pypi`. In SDK 0.3.1.
+- Issue: none
+
+### B182. An engine's acknowledgements can name a licence that is not an SPDX id
+
+- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
+- Report: `plumcraft_engine.acknowledgements.from_distributions` falls back to a package's classifier or free-form licence text when it has no `License-Expression`, so it answers "MIT License" or "Apache Software License" where spec 6.3 asks for an SPDX id or expression. The editor groups by licence, so "MIT License" and "MIT" would be separate rows (the second part not checked).
+- Context: `python/src/plumcraft_engine/acknowledgements.py`. Seen for `duckdb`, `pytz` and `opencv-python-headless`.
+- Cause: confirmed by a failing test with made-up packages (24 of 30 cases failed) and by reading the editor: it makes a row per exact licence string, so "MIT License" and "MIT" were two rows.
+- Fixed: 2026-11-28, branch `fix/sdk-b182-b183`: `License-Expression` first, then a table from trove classifiers and common names to SPDX ids, no network; what names no one licence ("BSD License") is `LicenseRef-unknown` with the metadata's own words in the text, never a guess. The plain "Apache Software License" classifier is read as Apache-2.0, a judgement. In SDK 0.3.1.
+- Issue: none
 
 ### B177. Windows: the status line is not fitted again when an open window is narrowed
 
