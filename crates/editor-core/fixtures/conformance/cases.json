@@ -3847,6 +3847,166 @@
           }
         }
       ]
+    },
+    {
+      "name": "a graph from elsewhere waits for a review before it runs, with what it touches, and runs once trusted",
+      "about": "B185 (the maintainer, 2026-11-28, card 2: \"Fix now, ahead of everything else\"): a graph read from a file nobody here approved is held, on every shell's core as in the egui editor (plumcraft_session::trust). The file is a copy written with Save a Copy, which, unlike Save, approves nothing (its text names the case's own $scratch, so no earlier run approved it). Opened, graph.review is pending; its run is held and the core raises the prompt reviewWorkflow with answers trust and cancel and, in lines, what it lists; trusted, the next run goes out and finishes. `saves`: the driver's shell can write the case's $scratch folder",
+      "half": "edit",
+      "needs": [
+        "saves",
+        "engine:text"
+      ],
+      "steps": [
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "text.literal",
+              "pos": [
+                0,
+                0
+              ]
+            }
+          },
+          "save": {
+            "a": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$a",
+              "port": "text",
+              "value": "from elsewhere, $scratch"
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "text.upper",
+              "pos": [
+                300,
+                0
+              ]
+            }
+          },
+          "save": {
+            "b": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "wire.connect",
+            "params": {
+              "from": {
+                "node": "$a",
+                "port": "text"
+              },
+              "to": {
+                "node": "$b",
+                "port": "text"
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "graph.saveCopy",
+            "params": {
+              "path": "$scratch/elsewhere.plum"
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "graph.open",
+            "params": {
+              "path": "$scratch/elsewhere.plum",
+              "discard": true
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "graph.review",
+            "params": {}
+          },
+          "expect": {
+            "/result/pending": true,
+            "/result/nodes": 2
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "run.start",
+            "params": {}
+          },
+          "expect": {
+            "/result/held": {
+              "$exists": true
+            }
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "until": {
+            "/result/prompt/kind": "reviewWorkflow",
+            "/result/run/awaitingReview": true
+          },
+          "timeout": 10,
+          "expect": {
+            "/result/prompt/answers": [
+              "trust",
+              "cancel"
+            ]
+          }
+        },
+        {
+          "call": "ui.prompt",
+          "params": {
+            "answer": "trust"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "graph.review",
+            "params": {}
+          },
+          "expect": {
+            "/result/pending": false
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "run.start",
+            "params": {}
+          },
+          "expect": {
+            "/result/held": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "call": "ui.waitRun",
+          "params": {
+            "timeout": 60
+          }
+        }
+      ]
     }
   ]
 }

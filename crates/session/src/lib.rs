@@ -242,10 +242,14 @@ pub struct Session {
     pub caps: plumcraft_proto::caps::Caps,
     /// The application, for its About window.
     pub about: About,
-    /// The trust file ([`trust`]); without one nothing is held for review.
-    trust_file: Option<PathBuf>,
+    /// Where approvals live ([`trust`]); off, nothing is held for review.
+    trust: trust::Approvals,
+    /// The application's own folders of graphs ([`Session::set_own_folders`]).
+    own_folders: Vec<PathBuf>,
     /// The graph was read from a file, so whether it may run is a question.
     from_file: bool,
+    /// The file it was read from (a picture an opener read, a bundle before unpacking).
+    opened_from: Option<PathBuf>,
     /// The window's engine connection, as the editor last linked it ([`Session::connection`]).
     connection: SharedConnection,
     /// The document this session is, among the editor's open documents (0: none named). The
@@ -305,8 +309,10 @@ impl Session {
             save: save_cmds::SaveState::default(),
             caps: Default::default(),
             about: About::default(),
-            trust_file: None,
+            trust: trust::Approvals::Off,
+            own_folders: Vec::new(),
             from_file: false,
+            opened_from: None,
             connection: SharedConnection::default(),
             doc: 0,
         }
@@ -332,24 +338,55 @@ impl Session {
     /// Hold graphs from elsewhere until they are approved, with approvals in `path` ([`trust`]).
     /// A graph already opened from a file is held to it too.
     pub fn set_trust_file(&mut self, path: PathBuf) {
-        self.trust_file = Some(path);
+        self.set_approvals(trust::Approvals::File(path));
+    }
+
+    /// Hold graphs from elsewhere with nowhere to keep approvals: each lasts as long as `shared`,
+    /// which the sessions of one process may share ([`trust::Approvals::Memory`]).
+    pub fn hold_untrusted(&mut self, shared: std::sync::Arc<std::sync::Mutex<BTreeSet<String>>>) {
+        self.set_approvals(trust::Approvals::Memory(shared));
+    }
+
+    /// Where approvals live ([`Session::set_trust_file`], [`Session::hold_untrusted`]).
+    pub fn set_approvals(&mut self, approvals: trust::Approvals) {
+        self.trust = approvals;
         if self.from_file {
             self.check_trust();
         }
     }
 
-    /// Does this graph, just read from a file, need approving?
-    fn check_trust(&mut self) {
-        let Some(file) = &self.trust_file else { return };
-        self.run.review_due = !trust::is_trusted(file, &trust::graph_hash(&self.graph));
+    /// The application's own folders of graphs (shipped with it, read-only): a graph opened from
+    /// a file in one, or from an unchanged copy of one of their files, is the application's own
+    /// and isn't held ([`trust::is_own`]).
+    pub fn set_own_folders(&mut self, folders: Vec<PathBuf>) {
+        self.own_folders = folders;
+        if self.from_file {
+            self.check_trust();
+        }
     }
 
-    /// `other`, from a file, has joined this graph: unless it is trusted, the whole graph needs
-    /// approving.
-    pub(crate) fn check_trust_of(&mut self, other: &Graph) {
-        if let Some(file) = &self.trust_file
-            && !trust::is_trusted(file, &trust::graph_hash(other))
-        {
+    /// Is the graph read from `from` the application's own, or approved? A graph with no nodes
+    /// is: it touches nothing, and what is added to it is added here (the iPad's New Graph is an
+    /// empty file the shell writes and opens).
+    fn trusted_file(&self, from: Option<&Path>, graph: &Graph) -> bool {
+        !self.trust.is_on()
+            || graph.nodes.is_empty()
+            || from.is_some_and(|f| trust::is_own(f, &self.own_folders))
+            || self.trust.trusts(&trust::graph_hash(graph))
+    }
+
+    /// Does this graph, just read from a file, need approving?
+    fn check_trust(&mut self) {
+        if !self.trust.is_on() {
+            return;
+        }
+        self.run.review_due = !self.trusted_file(self.opened_from.as_deref(), &self.graph);
+    }
+
+    /// `other`, read from `from`, has joined this graph: unless it is trusted, the whole graph
+    /// needs approving.
+    pub(crate) fn check_trust_of(&mut self, other: &Graph, from: &Path) {
+        if self.trust.is_on() && !self.trusted_file(Some(from), other) {
             self.run.review_due = true;
         }
     }
@@ -366,7 +403,7 @@ impl Session {
     /// without that it lasts as long as the session.
     pub fn trust_graph(&mut self) -> bool {
         self.run.release();
-        self.trust_file.as_ref().is_some_and(|f| trust::remember(f, &trust::graph_hash(&self.graph)).is_ok())
+        self.trust.remember(&trust::graph_hash(&self.graph))
     }
 
     /// A graph with no past: nothing held for the old one, and no way back to it past a review.
@@ -734,14 +771,14 @@ impl Session {
     /// Saved here, so a trusted graph stays trusted when it is opened again; an unapproved one
     /// doesn't become trusted by being saved.
     pub(crate) fn remember_saved(&self) {
-        if let Some(file) = self.trust_file.as_ref().filter(|_| !self.run.review_due) {
-            let _ = trust::remember(file, &trust::graph_hash(&self.graph));
+        if self.trust.is_on() && !self.run.review_due {
+            let _ = self.trust.remember(&trust::graph_hash(&self.graph));
         }
     }
 
     /// Replace the graph with one read from `path`. Opening isn't an undo step: the history
     /// belongs to the previous graph, so it is cleared.
-    pub(crate) fn replace_opened(&mut self, mut graph: Graph, path: PathBuf) {
+    pub(crate) fn replace_opened(&mut self, mut graph: Graph, path: PathBuf, from: PathBuf) {
         // Workflows saved before serials existed get them (saved with the next save).
         graph.migrate_serial_titles(|kind| display_name(&self.catalog, kind));
         graph.assign_serials(&BTreeSet::new(), |kind| display_name(&self.catalog, kind));
@@ -752,6 +789,7 @@ impl Session {
         self.redo.clear();
         self.mark_saved(path);
         self.from_file = true;
+        self.opened_from = Some(from);
         self.run.decline_review();
         self.check_trust();
     }

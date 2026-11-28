@@ -195,7 +195,7 @@ final class AskPresenter {
         case .prompt?:
             let alert = NSAlert()
             alert.messageText = p["title"].string ?? "Plummer"
-            alert.informativeText = p["text"].string ?? ""
+            alert.informativeText = AskWords.promptMessage(p)
             let answers = (p["answers"].array ?? []).compactMap(\.string)
             for ans in answers { alert.addButton(withTitle: AskWords.buttonTitle(ans, prompt: p)) }
             if answers.isEmpty { alert.addButton(withTitle: "OK") }

@@ -188,6 +188,11 @@ let testEnvironment: Void = {
         #expect(AskWords.buttonTitle("png", prompt: shape) == "Save as PNG anyway")
         #expect(AskWords.buttonTitle("npy", prompt: shape) == "Save as NumPy (.npy)")
         #expect(AskWords.buttonTitle("discard", prompt: ["kind": "unsavedChanges"]) == "Don't Save")
+        // B185: a prompt's message carries what it lists, in the core's words
+        let review: JSONValue = ["kind": "reviewWorkflow", "text": "Check it.", "lines": ["Reads:", "  /etc/x  (Load)", "Engines: Text"]]
+        #expect(AskWords.promptMessage(review) == "Check it.\n\nReads:\n  /etc/x  (Load)\nEngines: Text")
+        #expect(AskWords.promptMessage(["text": "Only this."]) == "Only this.")
+        #expect(AskWords.buttonTitle("trust", prompt: review) == "Trust")
         #expect(AskWords.extensions(["kinds": [["label": "W", "extensions": ["json", "zip"]]]]) == ["json", "zip"])
         #expect(AskWords.extensions(["kinds": [["label": "Any", "extensions": ["*"]]]]) == [])
         #expect(AskWords.extensions(.null) == [])

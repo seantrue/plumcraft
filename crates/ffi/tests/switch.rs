@@ -31,8 +31,10 @@ fn runs_text(c: &mut Client) {
 /// audio engine in process for the graph's kinds, and the whole demo runs.
 #[test]
 fn the_audio_demo_runs_on_the_audio_engine_compiled_in() {
-    let mut c = Client::open(&json!({"store_root": store_root("audio-inproc"), "platform": {"os": "ios", "subprocess": false}}));
-    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/plumcraft-editor/demos/audio.plum");
+    let demos = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/plumcraft-editor/demos");
+    // the demos are graphs the application ships (`dirs.bundled`, B185): not held for review
+    let mut c = Client::open(&json!({"store_root": store_root("audio-inproc"), "platform": {"os": "ios", "subprocess": false}, "dirs": {"bundled": demos}}));
+    let demo = demos.join("audio.plum");
     let r = command(&mut c, "graph.open", json!({"path": demo, "discard": true}));
     assert_eq!(r["ok"], true, "{r}");
     let t0 = std::time::Instant::now();
