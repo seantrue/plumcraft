@@ -54,6 +54,48 @@ RESERVED = ("plumcraft", "core", "x")
 SCRIPTS = ("check", "nodes", "run", "serve", "conform", "cli-run", "editor", "install", "uninstall", "_plumcraft.sh")
 ID = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 GIT_URL = "ssh://git@github.com/seantrue/plumcraft"
+# The SDK a new engine needs: 0.3.1 is the first whose `register` finds the `examples/demo.plum`
+# this generator writes (0.3.0's looks for `demo.json` only, and registers the engine without a demo).
+SDK_PIN = "plumcraft-engine>=0.3.1,<0.4"
+# What the README says of the SDK, for each `--sdk` (B183: it described a path for every one).
+_PATH_SOURCE = '`plumcraft-engine = { path = "<checkout>/python", editable = true }`'
+_GIT_SOURCE = f'`plumcraft-engine = {{ git = "{GIT_URL}", subdirectory = "python", rev = "<commit>" }}`'
+SDK_TEXTS = {
+    "pypi": {
+        "sdk_wheel": f"The wheel names `{SDK_PIN}` as a dependency, so the installer gets the SDK from PyPI, as this project does.",
+        "sdk_section": (
+            f"`pyproject.toml` takes the SDK from PyPI: `{SDK_PIN}`, the release `uv.lock` holds. "
+            "`uv lock --upgrade-package plumcraft-engine` moves it to the newest release in that range.\n\n"
+            "To run against a PlumCraft checkout instead (an SDK change of your own, or one not released yet), "
+            f"add a `[tool.uv.sources]` table to `pyproject.toml` with a path, {_PATH_SOURCE}, or a pinned commit, {_GIT_SOURCE}, "
+            "then `uv sync`. `plumcraft-engine new --sdk path` or `--sdk git@REV` writes one."
+        ),
+    },
+    "path": {
+        "sdk_wheel": (
+            "The wheel names `plumcraft-engine` as a dependency, not this project's `[tool.uv.sources]`, "
+            f"so the installer gets a release from PyPI in `{SDK_PIN}`, not your checkout."
+        ),
+        "sdk_section": (
+            "`pyproject.toml` takes the SDK from `[tool.uv.sources]`: a path to your PlumCraft checkout, editable, "
+            "so the engine always runs the SDK the editor was built with. On another machine, edit the path, "
+            f"or use a pinned commit, {_GIT_SOURCE}; "
+            f"or remove the `[tool.uv.sources]` table to take the release from PyPI (`{SDK_PIN}`). Then `uv sync`."
+        ),
+    },
+    "git": {
+        "sdk_wheel": (
+            "The wheel names `plumcraft-engine` as a dependency, not this project's `[tool.uv.sources]`, "
+            f"so the installer gets a release from PyPI in `{SDK_PIN}`, not the pinned commit."
+        ),
+        "sdk_section": (
+            "`pyproject.toml` takes the SDK from `[tool.uv.sources]`: a pinned commit of PlumCraft's repository. "
+            "Change `rev` to move it; use a path to a checkout, "
+            f"{_PATH_SOURCE}, to follow one; "
+            f"or remove the `[tool.uv.sources]` table to take the release from PyPI (`{SDK_PIN}`). Then `uv sync`."
+        ),
+    },
+}
 
 
 class Refused(Exception):
@@ -84,12 +126,19 @@ class Plan:
     def values(self) -> dict[str, str]:
         v = {k: getattr(self, k) for k in ("id", "name", "package", "cls", "project", "python", "sdk_source")}
         watch = "loud.text" if "text" in self.types else "parsed.float"
-        deps = ['"plumcraft-engine>=0.3,<0.4"', *(['"pillow>=10"'] if "image" in self.types else [])]
+        deps = [f'"{SDK_PIN}"', *(['"pillow>=10"'] if "image" in self.types else [])]
         sources = ""
         if self.sdk_source:
             sources = f"# Where the PlumCraft SDK comes from; README.md says how to switch.\n[tool.uv.sources]\nplumcraft-engine = {self.sdk_source}\n\n"
         extra = {"python_tag": self.python.replace(".", ""), "types": ", ".join(self.types), "watch": watch, "dependencies": ", ".join(deps)}
-        return v | extra | {"uv_sources": sources}
+        return v | extra | {"uv_sources": sources} | SDK_TEXTS[self.sdk_kind]
+
+    @property
+    def sdk_kind(self) -> str:
+        """`pypi`, `path` or `git`: where `sdk_source` takes the SDK from."""
+        if not self.sdk_source:
+            return "pypi"
+        return "path" if self.sdk_source.startswith("{ path") else "git"
 
     @property
     def pairs(self) -> list[tuple[str, str]]:
@@ -352,7 +401,7 @@ def write_files(p: Plan, root: Path) -> None:
         "tests/test_conformance.py": template("test_conformance.py.tmpl").substitute(v),
         "tests/test_nodes.py": template("test_nodes.py.tmpl").substitute(v | {"imports": node_imports, "nodes": by_type(p, "test_nodes_")}),
         "tests/test_roundtrips.py": template("test_roundtrips.py.tmpl").substitute(v | {"imports": pair_imports, "pairs": by_type(p, "test_pairs_")}),
-        "examples/demo.json": json.dumps(demo(p), indent=2) + "\n",
+        "examples/demo.plum": json.dumps(demo(p), indent=2) + "\n",
     }
     files |= {f"scripts/{name}": template(f"scripts/{name}.tmpl").substitute(v) for name in SCRIPTS}
     if p.pycharm:
@@ -373,10 +422,10 @@ def pycharm_files(p: Plan) -> dict[str, str]:
     """Shared run configurations in `.run/`, using the project's `.venv`, and a minimal `.idea/`:
     no `misc.xml`, which names a machine's interpreter (`docs/research/17-engine-generator.md`, 6.1)."""
     v = p.values()
-    attached = "run examples/demo.json --attach http://127.0.0.1:7311"
+    attached = "run examples/demo.plum --attach http://127.0.0.1:7311"
     modules = (
         ("Serve (HTTP 7311)", p.package, "--listen 127.0.0.1:7311 --token-file .engine-token"),
-        ("Run demo", "plumcraft_engine.cli", "run examples/demo.json"),
+        ("Run demo", "plumcraft_engine.cli", "run examples/demo.plum"),
         ("Run demo (attached)", "plumcraft_engine.cli", attached),
         ("Nodes", "plumcraft_engine.cli", "nodes"),
     )

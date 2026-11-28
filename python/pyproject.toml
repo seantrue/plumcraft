@@ -1,6 +1,6 @@
 [project]
 name = "plumcraft-engine"
-version = "0.3.0"
+version = "0.3.1"
 description = "PlumCraft's Python engine SDK and the text engine in Python, speaking protocol 2 over the mode 2 socket binding, with blobs in commonkit"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
@@ -67,7 +67,7 @@ norecursedirs = ["golden"]
 # generated engine's project names its own.
 [tool.plumcraft]
 engine = "plumcraft_text:TextEngine"
-demo = "../examples/data.json"
+demo = "../examples/data.plum"
 
 [tool.plumcraft.conformance]
 slow = "text.slow"

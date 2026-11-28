@@ -1317,3 +1317,20 @@ The answer line, verbatim: "Decisions: 1A "Have the paint mask take a mask input
 |---|---|---|
 | 11 | Photos as a source for a path that takes pictures: A the shell's business only (the core asks for a file and never knows the source; the iPad and iPhone ask "Photos or Files" while answering the one ask); B the core says in the ask that Photos is offered (`sources`) and an answer says which gave it (`source`), a capability | 11A: the shell's business only; B declined |
 | 12 | Launching it: A add a node to the test engine whose path takes pictures only, and update the conformance counts it moves; B leave it to a hand check on a device | 12A: add the node |
+
+## 23. Parity with the egui editor: the audit and its decisions (2026-11-28)
+
+The maintainer: "What is left on the roadmap to native app parity with the egui version? (I note we don't have send-to on ipad or mac)". The audit is `claude-debug/native-parity-2026-11-28.md`. Ten points were put as cards, the first option of each recommended. The answer, in the maintainer's words: **"Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A"**.
+
+| Card | Decided (option A, as worded on the card) |
+|---|---|
+| 1. What Send To means (B184) | Share… is Send To: launch-test it on the Mac and iPad, fix what that finds, close B184 |
+| 2. Trust review on the native shells (B185) | Fix now, ahead of everything else |
+| 3. Windows share sheet | Build it (Windows' own share panel) |
+| 4. An application's commands, forms, menus and hooks on the native shells | Carry them across the C ABI as data, like the menu model |
+| 5. The curves and mask editors on Windows | Write them in C# on the same core models |
+| 6. Preferences from the egui editor | Keep them apart: Plummer starts fresh |
+| 7. New and Open on the iPad | Turn `document_windows` on for the iPad and make New and Open the core's commands |
+| 8. Which egui-only views the native apps must have | Find in text and PDF first; the rest when an engine needs them |
+| 9. Windows packaging and updates | MSIX for Windows; notarize and TestFlight when the feature gaps close; updates later |
+| 10. What counts as launched | A kittest or conformance case counts for the core's behaviour; drawing still needs a person check or UI test |

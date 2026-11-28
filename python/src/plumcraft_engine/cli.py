@@ -2,7 +2,7 @@
 (`docs/research/17-engine-generator.md`, sections 2 and 5).
 
     plumcraft-engine nodes [--engine MODULE:CLASS | --attach URL]
-    plumcraft-engine run [WORKFLOW.json] [--engine MODULE:CLASS | --attach URL]
+    plumcraft-engine run [WORKFLOW.plum] [--engine MODULE:CLASS | --attach URL]
                          [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
     plumcraft-engine check [--engine MODULE:CLASS] [--mode process|http]
     plumcraft-engine new DEST [--id ID] [--types text,table,array,…] … (see plumcraft_engine.new)
@@ -12,7 +12,7 @@
   directory up. It runs in this process, in a `Host`, as the editor's in-process mode does.
   `--attach URL` talks to an engine already serving HTTP (`--listen`), with
   `PLUMCRAFT_ENGINE_TOKEN` when set.
-- **The workflow:** a research-shaped JSON file (`{"nodes", "wires"}`), else `[tool.plumcraft]
+- **The workflow:** a graph's file (`.plum`, or `.json`; research-shaped JSON, `{"nodes", "wires"}`), else `[tool.plumcraft]
   demo` (relative to its `pyproject.toml`). Path inputs relative to the workflow's folder are made
   absolute, as `plumcraft run` does.
 - **`run` prints each event as it arrives**, then the watched values and a summary line; `--raw`
@@ -41,10 +41,10 @@ from .host import Host
 from .serve import ENV_TOKEN
 
 USAGE = """usage: plumcraft-engine nodes [--engine MODULE:CLASS | --attach URL]
-       plumcraft-engine run [WORKFLOW.json] [--engine MODULE:CLASS | --attach URL] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
+       plumcraft-engine run [WORKFLOW.plum] [--engine MODULE:CLASS | --attach URL] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
        plumcraft-engine check [--engine MODULE:CLASS] [--mode process|http]
        plumcraft-engine new DEST [--id ID] [--name NAME] [--types text,table,array,…] [--package NAME]
-                            [--sdk path|git[@REV]] [--python 3.X] [--no-pycharm] [--git]"""
+                            [--sdk pypi|path|git[@REV]] [--python 3.X] [--no-pycharm] [--git]"""
 CAPS = ["events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json"]
 # A watched excerpt as printed: at most this many lines, each cut to this width.
 EXCERPT_LINES, EXCERPT_WIDTH = 8, 120
@@ -194,7 +194,7 @@ def workflow_for(path: str | None) -> tuple[dict, Path]:
         found = project(Path.cwd())
         demo = found[1].get("demo") if found else None
         if not isinstance(demo, str):
-            raise Usage("no workflow: give WORKFLOW.json, or set [tool.plumcraft] demo in pyproject.toml")
+            raise Usage("no workflow: give WORKFLOW.plum, or set [tool.plumcraft] demo in pyproject.toml")
         file = found[0] / demo
     else:
         file = Path(path)

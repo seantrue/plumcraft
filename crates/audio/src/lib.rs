@@ -64,7 +64,7 @@ pub const MAX_SECONDS: f64 = 600.0;
 pub const MAX_FILE: u64 = 1 << 30;
 
 /// A demo graph: a tone through a fade, gain and a reverb, with its peak, loudness and spectrum.
-pub const DEMO_WORKFLOW: &str = include_str!("../../../apps/plumcraft-editor/demos/audio.json");
+pub const DEMO_WORKFLOW: &str = include_str!("../../../apps/plumcraft-editor/demos/audio.plum");
 
 /// The engine, ready to host.
 pub fn engine() -> Engine {

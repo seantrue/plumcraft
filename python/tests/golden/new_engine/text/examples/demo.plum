@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "nodes": {
+    "sum": {
+      "kind": "weather.add",
+      "values": {
+        "a": 2.0,
+        "b": 0.5
+      }
+    },
+    "formatted": {
+      "kind": "weather.format_number",
+      "values": {
+        "decimals": 3
+      }
+    },
+    "parsed": {
+      "kind": "weather.parse_number"
+    },
+    "source": {
+      "kind": "weather.text",
+      "values": {
+        "text": "a corgi naps"
+      }
+    },
+    "loud": {
+      "kind": "weather.shout",
+      "values": {
+        "marks": 3
+      }
+    },
+    "hex": {
+      "kind": "weather.text_to_hex"
+    },
+    "back": {
+      "kind": "weather.hex_to_text"
+    },
+    "waited": {
+      "kind": "weather.slow"
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "sum",
+        "port": "float"
+      },
+      "to": {
+        "node": "formatted",
+        "port": "value"
+      }
+    },
+    {
+      "from": {
+        "node": "formatted",
+        "port": "string"
+      },
+      "to": {
+        "node": "parsed",
+        "port": "string"
+      }
+    },
+    {
+      "from": {
+        "node": "source",
+        "port": "text"
+      },
+      "to": {
+        "node": "loud",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "loud",
+        "port": "text"
+      },
+      "to": {
+        "node": "hex",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "hex",
+        "port": "string"
+      },
+      "to": {
+        "node": "back",
+        "port": "string"
+      }
+    },
+    {
+      "from": {
+        "node": "back",
+        "port": "text"
+      },
+      "to": {
+        "node": "waited",
+        "port": "text"
+      }
+    }
+  ]
+}

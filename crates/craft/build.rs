@@ -1,5 +1,5 @@
 //! Builds the table of built-in packs from `packs/`: every `<id>.toml` is a pack, and
-//! `<id>-demo.json` beside it, when present, is its demo workflow. `<id>@<tag>.toml` is another
+//! `<id>-demo.plum` beside it, when present, is its demo workflow. `<id>@<tag>.toml` is another
 //! pack for the same app, for other versions of it (B17, #56: `manifest::choose`). Adding a
 //! craft is adding its files; no Rust changes.
 
@@ -27,7 +27,7 @@ fn main() {
     let (variants, ids): (Vec<String>, Vec<String>) = ids.into_iter().partition(|id| id.contains('@'));
     for id in &ids {
         let toml = dir.join(format!("{id}.toml"));
-        let demo = dir.join(format!("{id}-demo.json"));
+        let demo = dir.join(format!("{id}-demo.plum"));
         println!("cargo:rerun-if-changed={}", toml.display());
         println!("cargo:rerun-if-changed={}", demo.display());
         let demo = if demo.is_file() { format!("Some(include_str!({:?}))", demo.display().to_string()) } else { "None".to_owned() };

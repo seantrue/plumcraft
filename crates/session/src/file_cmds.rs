@@ -178,15 +178,16 @@ fn graph_open(s: &mut Session, p: &Value) -> Result<Value> {
     // never writes over the picture it came from.
     if let Some(opener) = opener_for(&path) {
         let graph = read_opened(&path, &opener)?;
-        s.replace_opened(graph, path.clone());
+        s.replace_opened(graph, path.clone(), path.clone());
         s.forget_path();
         let mut out = opened(s);
         out["openedFrom"] = json!(path.display().to_string());
         return Ok(out);
     }
     // A bundle unpacks into a new folder beside it, and its workflow opens from there.
+    let from = path.clone();
     let (graph, path, bundle) = crate::archive::read_workflow_or_bundle(path)?;
-    s.replace_opened(graph, path);
+    s.replace_opened(graph, path, from);
     let mut out = opened(s);
     if let Some(b) = bundle {
         out["unpackedFrom"] = json!(b.display().to_string());
@@ -285,7 +286,7 @@ fn graph_save_copy(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(out)
 }
 
-/// A name for a copy of `path` beside it that isn't taken: "Name copy.json", "Name copy 2.json", …
+/// A name for a copy of `path` beside it that isn't taken: "Name copy.plum", "Name copy 2.plum", … (the file's own extension kept)
 fn copy_name(path: &Path) -> Option<PathBuf> {
     let stem = path.file_stem()?.to_string_lossy().into_owned();
     let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
@@ -294,7 +295,7 @@ fn copy_name(path: &Path) -> Option<PathBuf> {
 }
 
 /// `graph.duplicate {}`: a copy of the graph beside its file, named as iPadOS and the Finder name
-/// copies ("Name copy.json"); the document stays on its own file (N4 slice 4).
+/// copies ("Name copy.plum"); the document stays on its own file (N4 slice 4).
 fn graph_duplicate(s: &mut Session, _: &Value) -> Result<Value> {
     let path = s.path().map(Path::to_path_buf).ok_or_else(|| SessionError::File("this graph has no file yet: save it first".into()))?;
     let to = copy_name(&path).ok_or_else(|| file_err("duplicate", &path, "no free name beside it"))?;
@@ -406,7 +407,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Duplicate",
             menu: &[],
             shortcut: None,
-            params: "{} -> {path, dirty, nodes, wires, undo, redo, copy} (a copy beside the graph's file, \"Name copy.json\"; the document stays on its own file)",
+            params: "{} -> {path, dirty, nodes, wires, undo, redo, copy} (a copy beside the graph's file, \"Name copy.plum\"; the document stays on its own file)",
             enabled: has_file,
             run: graph_duplicate,
             journal: true,

@@ -107,7 +107,7 @@ runner="$kit/.build/release/plumcraft-conformance"
 xcrun simctl install "$sim" "$here/build/Build/Products/Release-iphonesimulator/Plummer.app"
 data="$(xcrun simctl get_app_container "$sim" "$bundle" data)"
 t="$data/tmp/conformance"; rm -rf "$t"; mkdir -p "$t"
-echo '{"version": 1, "nodes": {}, "wires": []}' > "$t/empty.json"
+echo '{"version": 1, "nodes": {}, "wires": []}' > "$t/empty.plum"
 # B71: the engines folder is the suite's, copied into the container (the app's core reads
 # PLUMCRAFT_ENGINE_FOLDER, passed through simctl's SIMCTL_CHILD_), and the runner is told
 mkdir -p "$t/engines" && cp "$root/crates/editor-core/fixtures/conformance/engines/"*.toml "$t/engines/"
@@ -124,7 +124,7 @@ status="$t/status.json"
 # and the picture case's first array node starts the array engine (decision 8C: engines start as
 # the graph comes to use them), so no case is skipped for want of an engine
 SIMCTL_CHILD_PLUMCRAFT_ENGINE_FOLDER="$t/engines" xcrun simctl launch --terminate-running-process "$sim" "$bundle" --status-file "$status" \
-  --control-token-file "$t/token" --scratch-state --hide-watched --engine text --open "$t/empty.json" >/dev/null
+  --control-token-file "$t/token" --scratch-state --hide-watched --engine text --open "$t/empty.plum" >/dev/null
 # wait (at most 60 s) for the port and the graph's canvas
 doc=""
 for _ in $(seq 600); do

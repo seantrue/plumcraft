@@ -4,6 +4,54 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B187. Tests read commonkit's policy file from the real store's folder
+
+- Reported: 2026-11-28 (an agent, running the C ABI tests for B185)
+- Report: the Rust tests print that commonkit read its policy file from the real cache folder, though a scratch store root was given: the policy lookup does not follow the root. Seen before the B185 change too.
+- Context: commonkit, by way of `crates/ffi` tests. Not confirmed by the controller. A fix belongs in commonkit.
+- Issue: none
+
+### B186. On the Mac a value's Share opens on the graph's window, not the pop-out it was pressed in
+
+- Reported: 2026-11-28 (an agent, launching Share for B184)
+- Report: the pop-out's Share opens the system's picker anchored on the graph window.
+- Context: `native/apple/PlumCraftMac/App/Asks.swift`. Seen in a scripted launch.
+- Issue: none
+
+### B184. No Send To on the iPad or the Mac
+
+- Reported: 2026-11-28
+- Report: "I note we don't have send-to on ipad or mac"
+- Context: said while asking what is left before the native apps match the egui editor. `docs/shell-interface.md` names `shell.share_targets` ("Empty: Send To is not offered") and maps the earlier spike's `SendTo` to it, and note 24's stage N6 lists "its openers and Send To through the asks"; no code in the core, the C ABI or the Apple shells reads `share_targets` (searched 2026-11-28). The shells do have Share… (the system's share sheet) for a value and for a graph, and Open in … and Open With.
+- Open question: which Send To: the application's own list of places to send a result (the spike's), or something the egui editor shows that the native shells do not?
+- Decided, 2026-11-28 (note 24 section 23, card 1): Share… is Send To; launch-test it on the Mac and iPad, fix what that finds, close this.
+- Progress, 2026-11-28 (branch `fix/b185-b184-trust-share`): launched for a graph and for a value. iPad simulator: the sheet came up with the graph's `.plum` and the value's file, and closed with nothing picked; one fix (the sheet is presented from the top-most view, so it shows over a pop-out). Mac: the picker came up with the right file both times, but a scripted launch could not close it (the app is never brought to the front), so cancelling is not shown there; B186 found. Open until a person has cancelled a share on the Mac.
+- Issue: none
+
+### B181. An application's iPad build does not carry the icons
+
+- Reported: 2026-11-28
+- Report: "The [application] build is not carrying the icons on ipad." (the application's name replaced; the words as said are in `claude-debug/bugs-private.md`, P4)
+- Context: the application built on the iPad shell, its device build of 2026-11-26 (the application at `9948fd9`, PlumCraft's native layer at `fa3f0b7`), which the maintainer had been using on the iPad ("iPad works well.").
+- Seen by the controlling session, not established as the same thing: in the simulator picture of that build taken on 2026-11-26, every node on the canvas, of two engines, shows one and the same cube glyph. The node icons' fallback is named "box" (`crates/editor-core/src/icons.rs`).
+- Not a cause, a thing to check first: on 2026-11-25 the release moved the editor core's 38 icon files from includes reaching into the ui crate's folder to links inside the crate (0.8.0's second packaging fix), two days before this report.
+- Looked for, 2026-11-28, and not found (an agent, launching in the iPad simulator; pictures in `claude-debug/b181/`): the application's build of 2026-11-26 on two of its own graphs shows a different Lucide icon on every node; its home-screen icon, the toolbar's symbols and the document browser are as Plummer's. The cubes in the picture of 2026-11-26 are the Showcase sample's built-in nodes, which name no icon, and Plummer shows the same. The 0.8.0 packaging change is ruled out: the icons are compiled into both the simulator's and the device's library. Not launched: the physical iPad, the node palette, the Engine menu, the context menus.
+- Two gaps found on the way, neither confirmed as what was meant: a graph file has no document icon on the iPad, in Plummer or in an application (the Mac has one); and the application does not declare the `.plum` type in its own project, which Plummer's project says an application must, so on a device without Plummer installed its graph files would be of an unknown type (not tested).
+- Answer, 2026-11-28: "I mean the icon that shows in the dock, and at rest."
+- Cause: the application's own iPad icon picture was the Mac's (a rounded tile on a clear surround, with alpha); iOS wants an opaque full-bleed square. Nothing in Plummer or the core: Plummer's own icon is opaque. In the simulator the old picture showed small inside a white square; what the device showed was not seen.
+- Fix: in the application's repository (its picture remade with `native/apple/Icons/full-bleed.swift`), committed on a branch there 2026-11-28, checked in the simulator, not yet on the device. Stays open until the maintainer has seen it on the iPad.
+- Issue: none
+
+### B180. A value-list node's multichoice port shows a text box instead of checkboxes
+
+- Reported: 2026-11-27
+- Report: "bug: select for choices should give drop down or check boxes", then "In picking media (PEN,CONTE,etc) in MARK nodes", then "Add as a bug for ../plumcraft"
+- Context: seen in the research software's pack, on a node whose pick-one port (`ENUM` with `choices`, 16 of them, plus `fills` and `shows` maps: choosing a value fills and shows other fields) chooses a drawing medium. The catalogue declares the choices, so the editor should offer a dropdown; what it shows instead hasn't been reported. Running a node once per choice is done today by wiring a value-list node with a `multichoice` port into the port (`crates/ui/src/param_widgets.rs:119`, `params_view.rs:471`). Private detail: `claude-debug/bugs-private.md`, P3.
+- Open question: what the editor shows for the port now (a text field, or a dropdown that doesn't open), in which app (egui, Mac, Windows, iPad) and view (parameter panel or the node's face); and whether the wish is one pick (dropdown) or several at once (checkboxes, one run per pick).
+- Answer (the maintainer, 2026-11-27): "Shows a text box in Vary Choices, requires checkboxes". So the text box is on the value-list node (the research software's Vary Choices: a `STRING` port with `widget: "multichoice"` and no choices of its own, which take the choices of the port it is wired into), not on the pick-one port itself; the wish is checkboxes, several picks at once.
+- Open question: which app (egui, Mac, Windows, iPad) and view (parameter panel or the node's face). Still to check: whether the node was wired when it showed the text box (unwired it has no choices to offer).
+- Issue: #236
+
 ### B178. CI: the gate job sometimes fails in its cache clean-up after every check has passed
 
 - Reported: 2026-11-25, seen by the controlling session three times in one day (the first run of #225, `main`'s merge commit of #225, the first run of #228); not reported by the maintainer.
@@ -270,6 +318,33 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B183. `plumcraft-engine new --sdk pypi` writes a README that describes a path or git SDK
+
+- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
+- Report: the generated README says "`pyproject.toml` takes the SDK from `[tool.uv.sources]`" and that the wheel "needs a release that has `register`", neither true when the SDK comes from PyPI.
+- Context: `python/src/plumcraft_engine/templates/engine/`. Not confirmed by the controller.
+- Cause: confirmed by a failing test: for `--sdk pypi` the README named a `[tool.uv.sources]` table that is not written and a release "that has `register`".
+- Fixed: 2026-11-28, branch `fix/sdk-b182-b183`: the README's SDK text is written for each choice (PyPI, a path, a pinned commit); a golden for `--sdk pypi`. In SDK 0.3.1.
+- Issue: none
+
+### B182. An engine's acknowledgements can name a licence that is not an SPDX id
+
+- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
+- Report: `plumcraft_engine.acknowledgements.from_distributions` falls back to a package's classifier or free-form licence text when it has no `License-Expression`, so it answers "MIT License" or "Apache Software License" where spec 6.3 asks for an SPDX id or expression. The editor groups by licence, so "MIT License" and "MIT" would be separate rows (the second part not checked).
+- Context: `python/src/plumcraft_engine/acknowledgements.py`. Seen for `duckdb`, `pytz` and `opencv-python-headless`.
+- Cause: confirmed by a failing test with made-up packages (24 of 30 cases failed) and by reading the editor: it makes a row per exact licence string, so "MIT License" and "MIT" were two rows.
+- Fixed: 2026-11-28, branch `fix/sdk-b182-b183`: `License-Expression` first, then a table from trove classifiers and common names to SPDX ids, no network; what names no one licence ("BSD License") is `LicenseRef-unknown` with the metadata's own words in the text, never a guess. The plain "Apache Software License" classifier is read as Apache-2.0, a judgement. In SDK 0.3.1.
+
+### B185. A graph from elsewhere runs with no trust review on the native shells
+
+- Reported: 2026-11-28 (an agent, auditing the native shells against the egui editor; the controller confirmed the code)
+- Report: only the egui editor calls `Session::set_trust_file` (`apps/plumcraft-editor/src/lib.rs`); the C ABI core never does, so on the Mac, the iPad and Windows a graph from elsewhere is not held for review before it runs.
+- Context: `crates/ffi`, `crates/session/src/trust.rs`. Not launched: seen in code only.
+- Cause: confirmed by a test at the C ABI before the fix: a graph from elsewhere showed no review pending and its run went out.
+- Fix: the C ABI core keeps approvals in `trusted.json` beside the shell's preferences, shared by a core's documents; a graph read from a file is held as in the egui editor; an empty graph and a shell's own bundled graphs (`dirs.bundled`, new) are not. The prompt carries its list as `lines`, which the Mac and iPad alerts had dropped. A graph a native app saved before this asks once. An application must name its own bundled folders in `dirs.bundled`, or its bundled graphs ask too.
+- Fixed: 2026-11-28, branch `fix/b185-b184-trust-share`. Launched on the Mac and the iPad simulator. Windows: source changed, not built or launched.
+- Issue: none
+
 ### B177. Windows: the status line is not fitted again when an open window is narrowed
 
 - Reported: 2026-11-25, found by an agent launching the Windows shell before 0.8.0; not reported by the maintainer.
@@ -279,7 +354,6 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Fixed: 2026-11-26, branch `pr/fix-b177` (the maintainer: "CPM b17"). The status line measures its room from the window's content, not from the bar's own width, and fits again when that changes size (seven lines in `DocWindow.cs`). Launched by the agent on the x64 Windows test guest at four widths (1200 to 560, 420, 300, and 1200 again). Not checked by the maintainer; not built for ARM64.
 - Seen once, not chased: a window started narrow showed no status line for its first seconds, before any run.
 - Issue: none
-
 
 ### B179. The lockfile held a withdrawn `async-executor` (1.14.0), which has a use-after-free
 
@@ -299,7 +373,6 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Fixed: 2026-11-25, branch `pr/fix-b174-b175`. `about.toml` names every workspace crate as MIT OR Apache-2.0 with the workspace's two files; the seven crates gain the licence links the others have. The window never listed the project's own crates, so the fault was in the shipped data; the adapted project's acknowledgement still shows as its own entry.
 - Issue: none
 
-
 ### B175. Acknowledgements: duplicate entries in the licence list
 
 - Reported: 2026-11-25
@@ -310,7 +383,6 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Decided (the maintainer, 2026-11-25, on the release checklist): "6B", fix it together with B174.
 - Fixed: 2026-11-25, branch `pr/fix-b174-b175`. A crate offering a choice of licences is under one at every version (one image decoder had one version under each); the same text taken twice from two files of one crate is taken once; a crate that needs several licences at once stays in each row and says "(also under …)" beside its name inside the row, from a new optional `also` on a row's package; a bundled part's own notice is kept and the package listed once. Not checked by the maintainer. Left: in the closed rows' titles a font package still names itself in three rows, since it is under all three.
 - Issue: none
-
 
 ### B173. Mac: a click on a node's mask row does not open the mask editor
 

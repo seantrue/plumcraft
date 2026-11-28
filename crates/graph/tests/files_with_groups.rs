@@ -38,7 +38,7 @@ fn text_catalog() -> SchemaReply {
 
 #[test]
 fn a_workflow_keeps_its_net_labels() {
-    let g = Graph::from_json(include_str!("fixtures/workflow-nets.json")).unwrap();
+    let g = Graph::from_json(include_str!("fixtures/workflow-nets.plum")).unwrap();
     assert_eq!(g.nets.keys().map(String::as_str).collect::<Vec<_>>(), ["Lower", "Upper"]);
     assert_eq!(g.nets["Upper"].from, PortRef::new("n15", "out"));
     assert_eq!(g.net_wires(&NetKey::top("Lower")).count(), 2);
@@ -51,7 +51,7 @@ fn a_workflow_keeps_its_net_labels() {
 
 #[test]
 fn a_workflow_keeps_its_frame_exactly() {
-    let text = include_str!("fixtures/workflow-frame.json");
+    let text = include_str!("fixtures/workflow-frame.plum");
     let g = Graph::from_json(text).unwrap();
     let frame = g.frame(&FrameId::from("f1")).expect("its frame");
     assert_eq!(frame.title, "Sample: a framed graph");
@@ -68,7 +68,7 @@ fn a_workflow_keeps_its_frame_exactly() {
 
 #[test]
 fn a_workflow_opens_with_its_groups() {
-    let g = Graph::from_json(include_str!("fixtures/workflow-groups.json")).unwrap();
+    let g = Graph::from_json(include_str!("fixtures/workflow-groups.plum")).unwrap();
     g.check(&demo_catalog()).unwrap();
     let grp = g.group(&GroupId::from("g1")).expect("its group");
     assert_eq!(grp.name, "LoadPrep");
@@ -88,7 +88,7 @@ fn a_workflow_opens_with_its_groups() {
 
 #[test]
 fn pack_only_group_fields_are_kept_not_errors() {
-    let text = include_str!("fixtures/text-groups-with-checkpoints.json");
+    let text = include_str!("fixtures/text-groups-with-checkpoints.plum");
     let g = Graph::from_json(text).unwrap();
     g.check(&text_catalog()).unwrap();
     let (g1, g2) = (g.group(&GroupId::from("g1")).unwrap(), g.group(&GroupId::from("g2")).unwrap());
@@ -137,9 +137,9 @@ fn lost(file: &serde_json::Value, saved: &serde_json::Value, at: String, out: &m
 #[test]
 fn a_file_survives_opening_and_saving() {
     let mut texts: Vec<(String, String)> = vec![
-        ("nets".into(), include_str!("fixtures/workflow-nets.json").into()),
-        ("frame".into(), include_str!("fixtures/workflow-frame.json").into()),
-        ("groups".into(), include_str!("fixtures/workflow-groups.json").into()),
+        ("nets".into(), include_str!("fixtures/workflow-nets.plum").into()),
+        ("frame".into(), include_str!("fixtures/workflow-frame.plum").into()),
+        ("groups".into(), include_str!("fixtures/workflow-groups.plum").into()),
     ];
     for dir in std::env::var("PLUMCRAFT_TEST_WORKFLOWS").unwrap_or_default().split(':').filter(|d| !d.is_empty()) {
         for e in std::fs::read_dir(dir).unwrap().flatten() {

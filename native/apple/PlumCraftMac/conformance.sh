@@ -101,7 +101,7 @@ runner="$kit/.build/release/plumcraft-conformance"
 run_on() {
 status="$scratch/status-$1.json"; rm -f "$status"
 "$app" --status-file "$status" --store-root "$scratch/store" --control-token-file "$scratch/token" \
-  --no-open-panel --scratch-state --hide-watched --engine "$1" "$scratch/empty.json" >"$scratch/app.log" 2>&1 &
+  --no-open-panel --scratch-state --hide-watched --engine "$1" "$scratch/empty.plum" >"$scratch/app.log" 2>&1 &
 pid=$!
 quit() {
   kill -TERM "$pid" 2>/dev/null || return 0
@@ -135,7 +135,7 @@ quit
 return $code
 }
 
-echo '{"version": 1, "nodes": {}, "wires": []}' > "$scratch/empty.json"
+echo '{"version": 1, "nodes": {}, "wires": []}' > "$scratch/empty.plum"
 # B169: About in the application menu, chosen as a person chooses it (the menu validates it
 # first), with a document window and after it closed: enabled both times, and the panel shows the
 # core's words (its credits; the build line first when the build is stamped)
@@ -144,7 +144,7 @@ about_check() {
   "$app" --status-file "$status" --store-root "$scratch/store" --control-token-file "$scratch/token" \
     --no-open-panel --scratch-state --hide-watched --engine text \
     --then "choose:Plummer:About Plummer;wait:2;close;wait:2;choose:Plummer:About Plummer;wait:2" \
-    "$scratch/empty.json" >"$scratch/app-about.log" 2>&1 &
+    "$scratch/empty.plum" >"$scratch/app-about.log" 2>&1 &
   pid=$!
   local ok=1
   for _ in $(seq 600); do

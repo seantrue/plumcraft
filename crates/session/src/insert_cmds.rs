@@ -91,6 +91,7 @@ fn name_from(path: &Path) -> String {
 fn insert(s: &mut Session, p: &Value, as_group: bool) -> Result<Value> {
     let path = path_param(p, "path")?;
     let as_group = as_group || opt_bool_param(p, "asGroup", false)?;
+    let from = path.clone();
     let (file, path, bundle) = match crate::file_cmds::opener_for(&path) {
         Some(o) => (crate::file_cmds::read_opened(&path, &o)?, path, None),
         None => crate::archive::read_workflow_or_bundle(path)?,
@@ -108,7 +109,7 @@ fn insert(s: &mut Session, p: &Value, as_group: bool) -> Result<Value> {
         }
         return Err(e);
     }
-    s.check_trust_of(&file);
+    s.check_trust_of(&file, &from);
     let name = match opt_str_param(p, "name")? {
         Some(n) => n.to_owned(),
         None => name_from(&path),

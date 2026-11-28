@@ -103,10 +103,11 @@ def test_the_builtin_ids_match_the_packs():
     assert list(generator.CRAFTS) == packs
 
 
-@pytest.mark.parametrize("case, types", [("scalars", "scalars"), ("text", "text"), ("all", ALL)])
-def test_the_output_is_the_golden(tmp, case, types):
+# `pypi`: the SDK from PyPI, as an engine made outside a checkout has it (B183)
+@pytest.mark.parametrize("case, types, sdk", [("scalars", "scalars", ()), ("text", "text", ()), ("all", ALL, ()), ("pypi", "text", ("--sdk", "pypi"))])
+def test_the_output_is_the_golden(tmp, case, types, sdk):
     dest = tmp / "weather-engine"
-    assert gen(dest, "--name", "Weather", "--types", types) == 0
+    assert gen(dest, "--name", "Weather", "--types", types, *sdk) == 0
     got = tree(dest)
     root = GOLDEN / case
     if os.environ.get("UPDATE_GOLDEN"):
@@ -136,7 +137,7 @@ def test_the_output_is_well_formed_and_its_own_tests_pass(tmp, types):
     assert pyproject["tool"]["uv"]["sources"]["plumcraft-engine"] == {"path": SDK_POSIX, "editable": True}
     manifest = tomllib.loads((dest / "plumcraft-engine.toml").read_text())
     assert manifest["id"] == "weather" and manifest["mode"] == "process"
-    assert manifest["demo"] == "examples/demo.json" and manifest["conformance"]["slow"] == "weather.slow"
+    assert manifest["demo"] == "examples/demo.plum" and manifest["conformance"]["slow"] == "weather.slow"
     lint(dest)
     out = in_project(dest, "pytest", "-q", "-p", "no:cacheprovider")
     assert out.returncode == 0, out.stdout[-3000:] + out.stderr[-1000:]
@@ -186,15 +187,15 @@ def test_image_depends_on_pillow(tmp):
     assert gen(tmp / "a-engine", "--types", "image") == 0
     assert gen(tmp / "b-engine", "--types", "text") == 0
     deps = lambda n: tomllib.loads((tmp / n / "pyproject.toml").read_text())["project"]["dependencies"]  # noqa: E731
-    assert deps("a-engine") == ["plumcraft-engine>=0.3,<0.4", "pillow>=10"]
-    assert deps("b-engine") == ["plumcraft-engine>=0.3,<0.4"]
+    assert deps("a-engine") == ["plumcraft-engine>=0.3.1,<0.4", "pillow>=10"]
+    assert deps("b-engine") == ["plumcraft-engine>=0.3.1,<0.4"]
 
 
 @pytest.mark.parametrize("types", ["text", ALL])
 def test_the_demo_uses_every_node(tmp, types):
     dest = tmp / "weather-engine"
     assert gen(dest, "--types", types) == 0
-    demo = json.loads((dest / "examples" / "demo.json").read_text())
+    demo = json.loads((dest / "examples" / "demo.plum").read_text())
     golden = json.loads((dest / "tests" / "golden" / "schema.json").read_text())
     own = {n["id"] for n in golden["nodes"] if n["id"].startswith("weather.")}
     assert {v["kind"] for v in demo["nodes"].values()} == own
@@ -247,7 +248,7 @@ def test_sdk_pypi_has_no_local_source(tmp):
     dest = tmp / "a-engine"
     assert gen(dest, "--sdk", "pypi") == 0
     pyproject = tomllib.loads((dest / "pyproject.toml").read_text())
-    assert pyproject["project"]["dependencies"] == ["plumcraft-engine>=0.3,<0.4"]
+    assert pyproject["project"]["dependencies"] == ["plumcraft-engine>=0.3.1,<0.4"]
     assert "sources" not in pyproject["tool"].get("uv", {})
 
 
@@ -265,3 +266,24 @@ def test_git_makes_a_first_commit(tmp, monkeypatch):
     assert gen(dest, "--git") == 0
     log = subprocess.run(["git", "log", "--oneline"], cwd=dest, capture_output=True, text=True, check=True)
     assert "plumcraft-engine new" in log.stdout
+
+
+# B183: what the project says of its SDK is right for each `--sdk`.
+@pytest.mark.parametrize("sdk", ["pypi", "path", "git@abc123"])
+def test_the_readme_says_where_the_sdk_comes_from(tmp, sdk):
+    dest = tmp / "said-engine"
+    assert gen(dest, "--sdk", sdk) == 0
+    readme = (dest / "README.md").read_text()
+    pyproject = (dest / "pyproject.toml").read_text()
+    has_sources = "[tool.uv.sources]" in pyproject
+    assert has_sources == (sdk != "pypi")
+    # it says the project takes the SDK from `[tool.uv.sources]` only when it does
+    assert ("takes the SDK from `[tool.uv.sources]`" in readme) == has_sources, readme
+    assert ("not this project's `[tool.uv.sources]`" in readme) == has_sources, readme
+    assert "needs a release that has `register`" not in readme
+    if sdk == "pypi":
+        assert "takes the SDK from PyPI" in readme
+    elif sdk == "path":
+        assert "a path to your PlumCraft checkout" in readme
+    else:
+        assert "a pinned commit" in readme and 'rev = "abc123"' in pyproject

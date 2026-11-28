@@ -112,7 +112,7 @@ Raise `ConfigError("...")` for a setting the user can fix, `OpError("...")` for 
 An engine is a Python package, so it ships as one: `uv build`, then `uv publish` or hand over the wheel. Whoever installs it (`uv tool install my-engine`, `pipx`, `pip`) runs `my-engine register` once. That writes `~/.config/plumcraft/engines/<id>.toml`, a manifest that starts the engine with the Python it was installed with, and every editor then offers it. `register` and `unregister` come with `serve()`, so every engine's console script has them (`plumcraft_engine.register`):
 
 - `register --print` shows the manifest without writing it, and `--folder DIR` writes it elsewhere.
-- The demo is the package's `examples/demo.json`. A generated project's wheel includes `examples/`.
+- The demo is the package's `examples/demo.plum`. A generated project's wheel includes `examples/`.
 - A checkout's own link (`scripts/install`) is left alone unless `--force`, and `unregister` removes only a manifest `register` wrote.
 - Every path in the manifest is absolute, so it works from any folder. `register` refuses, writing nothing, when the program it would start isn't one this user can run (an engine run as `python engine.py register`).
 - Run from uv's cache (`uvx my-engine register`, `uv tool run`), `register` warns and still writes the manifest: `uv cache clean` or `uv cache prune` removes that environment, and the engine with it. Run from a temporary one (`uv run --with my-engine my-engine register`, which uv removes when the command ends), it refuses. `register.uv_cache(program)` says which; `uv tool install` is the install that lasts.
@@ -126,12 +126,12 @@ An engine is a Python package, so it ships as one: `uv build`, then `uv publish`
 ```sh
 uv run plumcraft-engine nodes                                  # the catalogue
 uv run plumcraft-engine run                                    # the [tool.plumcraft] demo, events as they come
-uv run plumcraft-engine run my.json --watch shout.text         # a workflow, with a value watched
-uv run plumcraft-engine run my.json --cancel-after 0.5 --raw   # cancel mid-run; every event as JSON
-uv run plumcraft-engine run my.json --attach http://127.0.0.1:7311   # an engine serving --listen
+uv run plumcraft-engine run my.plum --watch shout.text         # a workflow, with a value watched
+uv run plumcraft-engine run my.plum --cancel-after 0.5 --raw   # cancel mid-run; every event as JSON
+uv run plumcraft-engine run my.plum --attach http://127.0.0.1:7311   # an engine serving --listen
 ```
 
-- **The engine:** `--engine module:Class`, else `[tool.plumcraft] engine` in the nearest `pyproject.toml` (this one names `plumcraft_text:TextEngine`, with `demo = "../examples/data.json"`). It runs in process, as the editor's in-process mode does; `--attach URL` talks to one already serving HTTP, with `PLUMCRAFT_ENGINE_TOKEN` when set.
+- **The engine:** `--engine module:Class`, else `[tool.plumcraft] engine` in the nearest `pyproject.toml` (this one names `plumcraft_text:TextEngine`, with `demo = "../examples/data.plum"`). It runs in process, as the editor's in-process mode does; `--attach URL` talks to one already serving HTTP, with `PLUMCRAFT_ENGINE_TOKEN` when set.
 - **The workflow:** path inputs relative to the workflow's folder are made absolute, as `plumcraft run` does.
 - **The exit code:** 0 when every node is `done` or `cached`, 1 when one isn't, 2 when the engine or workflow can't be had. A script can use `run` as a smoke test.
 

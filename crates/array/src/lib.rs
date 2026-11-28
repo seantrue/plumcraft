@@ -43,7 +43,7 @@ fn acknowledgements() -> plumcraft_proto::acknowledgements::Acknowledgements {
 }
 
 /// The engine's demo workflow.
-pub const DEMO_WORKFLOW: &str = include_str!("demo.json");
+pub const DEMO_WORKFLOW: &str = include_str!("demo.plum");
 
 /// Every node, in palette order.
 pub fn nodes() -> Vec<Box<dyn Node>> {

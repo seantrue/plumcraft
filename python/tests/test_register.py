@@ -194,3 +194,17 @@ def test_register_prints_a_cache_root_without_the_prefix(engines, capsys, monkey
     monkeypatch.setattr(register, "uv_cache", lambda _p: (root, True))
     assert run("register", folder=engines) == 1
     assert "\\\\?\\" not in capsys.readouterr().err
+
+
+def test_the_demo_is_the_packages_plum_or_an_older_json(monkeypatch):
+    # FR8: a package generated now carries `examples/demo.plum`; one generated before, `demo.json`
+    root = Path(scratch.mkdtemp("demo-pkg-"))
+    for name, files in (("fr8_new_pkg", ["demo.plum", "demo.json"]), ("fr8_old_pkg", ["demo.json"]), ("fr8_no_demo", [])):
+        (root / name / "examples").mkdir(parents=True)
+        (root / name / "__init__.py").write_text("")
+        for f in files:
+            (root / name / "examples" / f).write_text('{"nodes": {}}')
+    monkeypatch.syspath_prepend(str(root))
+    assert register._demo("fr8_new_pkg").name == "demo.plum"
+    assert register._demo("fr8_old_pkg").name == "demo.json"
+    assert register._demo("fr8_no_demo") is None

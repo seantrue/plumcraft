@@ -2,8 +2,10 @@
 //! Files writes what you can write, and an HTTP engine is sent the files a graph names. So a graph
 //! read from a file nobody here approved doesn't run until someone has seen what it touches.
 //!
-//! - **What is trusted:** a graph started here, and a graph whose hash is in the application's
-//!   trust file. Saving a trusted graph adds its hash, so editing and saving keeps the trust; a
+//! - **What is trusted:** a graph started here, a graph whose hash is in the application's
+//!   trust file, a graph with no nodes (it touches nothing; what is added to it is added here),
+//!   and the application's own graphs ([`is_own`]: a file in a folder it ships, or an unchanged
+//!   copy of one). Saving a trusted graph adds its hash, so editing and saving keeps the trust; a
 //!   change made elsewhere doesn't match, and asks again. Saving an unapproved graph adds nothing.
 //! - **The gate is in [`crate::run::RunState`]:** every run a session starts goes through
 //!   `request`, which holds it while a review is due. A held run isn't sent, so no command can get
@@ -11,14 +13,17 @@
 //!   the next run), and an agent on the control channel may call it: its
 //!   token already carries the owner's authority.
 //! - **Off without a trust file:** a library or test session has none. The command line's `run`
-//!   and `--screenshot` have none on purpose, since naming the file there is the approval.
+//!   and `--screenshot` have none on purpose, since naming the file there is the approval. A
+//!   native shell's core is never off (B185): with no preferences folder it holds all the same,
+//!   approvals lasting as long as the process ([`Approvals::Memory`]).
 //!
 //! The trust file is input like any other: one that is missing, too big or doesn't parse trusts
 //! nothing, which costs a question and no more.
 
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use plumcraft_graph::{Graph, NodeId, PortRef};
 use plumcraft_proto::catalogue::{MemoScope, SchemaReply};
@@ -150,6 +155,91 @@ pub fn remember(path: &Path, hash: &str) -> std::io::Result<()> {
         return Err(e);
     }
     Ok(())
+}
+
+/// Where a session's approvals live.
+#[derive(Debug, Clone, Default)]
+pub enum Approvals {
+    /// Nothing is held: a library or test session, the command line's `run`.
+    #[default]
+    Off,
+    /// The application's trust file ([`Session::set_trust_file`]).
+    File(PathBuf),
+    /// Held, with approvals kept only while the process runs: a shell that gave no place to
+    /// keep them ([`Session::hold_untrusted`]). Shared, so the documents of one core agree.
+    Memory(Arc<Mutex<BTreeSet<String>>>),
+}
+
+impl Approvals {
+    pub fn is_on(&self) -> bool {
+        !matches!(self, Approvals::Off)
+    }
+
+    /// Is `hash` approved? (With approvals off everything is.)
+    pub fn trusts(&self, hash: &str) -> bool {
+        match self {
+            Approvals::Off => true,
+            Approvals::File(p) => is_trusted(p, hash),
+            Approvals::Memory(m) => !hash.is_empty() && m.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(hash),
+        }
+    }
+
+    /// Approve `hash`. Whether it was written down (a trust file): in memory it lasts as long
+    /// as the process, and this says false.
+    pub fn remember(&self, hash: &str) -> bool {
+        match self {
+            Approvals::Off => false,
+            Approvals::File(p) => remember(p, hash).is_ok(),
+            Approvals::Memory(m) => {
+                if !hash.is_empty() {
+                    let mut set = m.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if set.len() < MAX_ENTRIES {
+                        set.insert(hash.to_owned());
+                    }
+                }
+                false
+            }
+        }
+    }
+}
+
+/// Is the file at `path` one of the application's own graphs: inside one of `own` (its own
+/// read-only folders, a shell's `dirs.bundled`), or a copy, byte for byte, of the file of the
+/// same name directly inside one of them (a sample the shell copied out and nobody has changed)?
+/// A file that can't be read is not.
+pub fn is_own(path: &Path, own: &[PathBuf]) -> bool {
+    if own.is_empty() {
+        return false;
+    }
+    let Ok(real) = std::fs::canonicalize(path) else { return false };
+    let folders: Vec<PathBuf> = own.iter().filter_map(|d| std::fs::canonicalize(d).ok()).collect();
+    if folders.iter().any(|d| real.starts_with(d)) {
+        return true;
+    }
+    let Some(name) = real.file_name() else { return false };
+    let read = |p: &Path| -> Option<Vec<u8>> {
+        let meta = std::fs::metadata(p).ok()?;
+        if !meta.is_file() || meta.len() > crate::file_cmds::MAX_WORKFLOW_BYTES {
+            return None;
+        }
+        std::fs::read(p).ok()
+    };
+    let Ok(size) = std::fs::metadata(&real).map(|m| m.len()) else { return false };
+    let mut mine: Option<Option<Vec<u8>>> = None;
+    for d in &folders {
+        let theirs = d.join(name);
+        match std::fs::metadata(&theirs) {
+            Ok(m) if m.is_file() && m.len() == size => {}
+            _ => continue,
+        }
+        let bytes = mine.get_or_insert_with(|| read(&real));
+        if let (Some(bytes), Some(other)) = (bytes.as_ref(), read(&theirs))
+            && *bytes == other
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// One thing in a graph that names a place on disk.

@@ -6,6 +6,35 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 
 ## Open
 
+### FR9. A node for "Share file"
+
+- Reported: 2026-11-28
+- Report: "feat: add a node for \"Share file\""
+- Context: said after B184's work, where Share… (the system's share sheet, standing in for Send To) was launched on the Mac and iPad as a menu and pop-out command. No node shares anything today; a result reaches the share sheet only by a person pressing Share….
+- Design (the maintainer, 2026-11-28, to four questions: when it shares, what it takes, where it lives, what it does with no share sheet): "1 yes, 2 any value, core node, warning on \"share result\" for unsupported". The AI's reading of "1 yes": the suggestion made with question 1, a button on the node as a result node's Save Result… works, not a share on every run.
+- Open question: the format a value is exported in: its own default, or one the node names?
+- Issue: #239
+
+### FR8. Every graph is a `.plum` file
+
+- Reported: 2026-11-28
+- Report: "Make .plum the default file extension for all graphs"
+- Context: FR2 made `.plum` what a new graph gets, and `.json` still opens. What is still `.json`: the samples the iPad app carries (5), `examples/`, the graphs `plumcraft-engine new` writes (and their golden copies), the external engines' examples (5), and the graph collections in their own repositories (about a hundred files). An application built on the iPad shell also has to declare the `.plum` type in its own project, and one checked does not.
+- Design: none decided beyond the report. The AI's reading: rename every graph that ships or is kept, make every writer of graphs write `.plum`, keep `.json` opening.
+- Progress, 2026-11-28 (branch `feat/fr8-plum-everywhere`): done in this repository. 32 tracked graphs renamed (the egui editor's demos, the array demo, the 13 craft pack demos, four graph test fixtures, `examples/data`, the iPad's five samples, the generator's golden demos) with everything that names them; `plumcraft-engine new` and both SDKs' `register` write `.plum` (the Python one still takes an older engine's `demo.json`; the Rust one removes the `.demo.json` it wrote before); a sample an earlier install left as `.json` on an iPad stays and is the one opened. Not graphs, so still `.json`: the conformance vectors, scene and protocol fixtures. An application's iPad project now declares the type. Launched: the five samples on the iPad simulator. Not built: the Windows shell (two text changes). Still to do: the graph collections in their own repositories (22 and 11 graphs, not the hundred first counted: the rest were run outputs), the external engines' five examples, and a release of the Python SDK, which carries the generator.
+- Issue: none
+
+### FR7. Bring the external engines up to date with the new engine spec
+
+- Reported: 2026-11-28
+- Report: "External engines (opencv, for instance) need to be brought up to date with the new engine spec."
+- Context: said two days after 0.8.0 (the Python SDK 0.3.0). The external engines found, all public and all Python: `plumcraft-opencv-engine`, `plumcraft-atlas-engine`, `plumcraft-duckdb-engine`.
+- Read from their project files, nothing run: the DuckDB engine asks for `plumcraft-engine>=0.2,<0.3`, which shuts 0.3.0 out; the OpenCV and Atlas engines name `plumcraft-engine` with no version.
+- Not established: what each lacks against the spec as it stands (the capabilities 0.8.0 added are `lists.nested`, `view.derive`, `output.save.question` and `acknowledgements`), and whether each passes the conformance suite today.
+- Open question: which engines, and how far: the SDK pin and a passing conformance run only, or each new capability taken up where it applies (nested lists, derived views, Save Result, acknowledgements)?
+- Progress, 2026-11-28: each engine moved to the released SDK (`plumcraft-engine>=0.3,<0.4` from PyPI, the git pin gone) on a local branch `feat/sdk-0.3`, one commit each, not pushed. Each takes up `acknowledgements`; `lists.nested` and `view.derive` come from the SDK host; `output.save.question` comes with the SDK's picture formats for the two engines with ARRAY outputs and does not apply to the DuckDB engine. Tests after: 51, 32 and 32 passed; `plumcraft-engine check` 14 of 14 and `conform` 18 of 18 on each (a Mac only). Two SDK faults found on the way: B182, B183.
+- Issue: none
+
 ### FR6. Every port offers the full range of visualizations directly, with no change to the graph
 
 - Reported: 2026-11-25

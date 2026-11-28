@@ -20,6 +20,38 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-28 — Python SDK 0.3.1 prepared: SPDX licence ids (B182), the generated README (B183) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+The maintainer: "fix the python sdk". Both faults were in AI-written SDK code, found earlier the same day by an agent moving the external engines to SDK 0.3, not by any test.
+
+**B182.** A failing test first, with made-up packages (24 of 30 cases). `acknowledgements.py` now takes `License-Expression`, else maps about 55 trove classifiers and the common free-form names to SPDX ids from a table in the SDK; what it cannot pin down is `LicenseRef-unknown` with the metadata's words kept. **B183.** The generator's README was written for a checkout whatever `--sdk` said; it now has text for each choice, and a fourth golden covers `--sdk pypi`. **0.3.1.** Version, lock, the generator's pin (`>=0.3.1,<0.4`), the changelog. Built, `twine check` passed, installed into a fresh environment, a generated engine's tests (17) and conformance (14 of 14) passed there, `register --print` named its `demo.plum`. Python tests 372 passed.
+
+**What went wrong.** The agent's Rust test build filled the Mac's disk to nothing in a shared build folder; every shell stopped, and the maintainer had to delete the folder by hand. So the Rust tests that read the generator's output were not run on the Mac; the Linux gate ran them. Nothing was uploaded.
+
+### 2026-11-28 — The parity audit, the trust review on the native shells (B185), and Share launched (B184) (Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
+
+The maintainer: "What is left on the roadmap to native app parity with the egui version? (I note we don't have send-to on ipad or mac)". There was no such list, so an agent made one (`claude-debug/native-parity-2026-11-28.md`, 190 commands by shell, read from code and from the tests that launch things; nothing launched for it). Ten points went to the maintainer as cards: "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A" (note 24 section 23).
+
+**A defect the audit found in AI-built work.** The native shells never turned the trust review on: only the egui editor called `set_trust_file`, so since the first native build a graph from elsewhere ran at once on the Mac, the iPad and Windows. No test caught it, because every shell test opened graphs it had made; the audit caught it by reading. The maintainer: "Fix now, ahead of everything else" (card 2).
+
+**The fix (an agent).** A failing C ABI test first (3 of 4 failed: no review pending, the run sent). Then: approvals in the core beside the shell's preferences, shared by its documents; egui's rule for what is held; two additions, an empty graph and a shell's own bundled folders (`dirs.bundled`); the prompt's list as `lines`, which the Mac and iPad alerts had been dropping and Windows would have shown as JSON. ~790 lines added across 20 files, tests included. Launched: the Mac app (the review sheet, nothing run before Trust, then the run) and the iPad simulator by a new UI test. The controller re-ran the C ABI trust test (5 of 5). Windows: source only, not built.
+
+**Share (card 1: "Share… is Send To").** Launched for a graph and a value on the Mac and the iPad simulator; the right file each time. One fix, found by reading and never seen failing: the iPad's sheet was presented under an open pop-out. On the Mac the picker could not be closed by a scripted launch, so B184 stays open for a person to cancel one; B186 found.
+
+**Costs and slips.** With the disk at 5 GB the agent deleted about 20 GB of test binaries it had built in a shared target folder, and their fingerprints, so other work on that folder relinks. Its Mac pictures show the maintainer's contacts in the share picker; they are untracked and must stay so.
+
+### 2026-11-28 — Every graph that ships is a `.plum` file (FR8) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+The maintainer: "Make .plum the default file extension for all graphs". FR2 had already made `.plum` what a new graph gets; this is everything that already existed.
+
+**What the agent did.** Surveyed the tracked `.json` files shaped like a graph and renamed 32 with `git mv`, with every reference (includes, build scripts, tests, docs, the iPad's sample list and UI tests). Made the writers write `.plum`: `plumcraft-engine new` (templates and goldens), the Rust and Python SDKs' `register`, the shells' conformance scripts. Kept old things working: Python's `register` falls back to `demo.json`, Rust's removes the `.demo.json` it used to write, and an iPad that already holds a sample as `.json` keeps it and gets no second copy. ~150 lines added and ~90 removed outside the goldens, across 99 files. Tests: tier 1 of test-affected 1,762 of 1,764 (the two failures are craft apps installed on the Mac that changed, not this work), Python 341 passed. Launched: Plummer's iPad app in the simulator, each of the five samples by its new name.
+
+**Where the controller's brief was wrong.** It said `docs/interface.md` should not change; the agent changed its three manifest lines that name the demo files, rightly. It counted about 87 graphs in the graphs repository; 22 are tracked, the rest run outputs. And "all graphs" could not be literal: conformance vectors and scene fixtures are JSON documents, not graph files, and stay.
+
+**Not done.** The Windows shell was not built (two text changes). The Mac shell and the egui editor were not launched. Opening a `.plum` from the Files app was not tried. No release: the published Python SDK still generates `demo.json`.
+
+**Also recorded here, 2026-11-28.** B181: "The [application] build is not carrying the icons on ipad." The controller guessed node icons and an agent spent a run proving those present before the maintainer was asked; the answer was the app icon ("the icon that shows in the dock, and at rest"), the application's own picture with a clear surround, fixed in its repository. FR7 (the external engines on SDK 0.3) turned up B182 and B183 in the SDK, neither confirmed by the controller.
+
 ### 2026-11-26 — test-affected and the shared CI setup, without the branch's history (Claude Opus 5.5 wrote it on 2026-11-13; Claude Fable 5.2 brought it in)
 
 **What the maintainer said.** "merge the claude/test-affected branch"; then, told that its files named private repositories and offered three ways, "Pending: as you suggest" (the work as one clean commit; #97 closed as superseded).

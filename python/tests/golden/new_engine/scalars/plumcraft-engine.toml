@@ -7,7 +7,7 @@ cwd = "."
 restart = "on-crash"
 max_restarts = 5
 hint = "uv sync, in this project"
-demo = "examples/demo.json"
+demo = "examples/demo.plum"
 
 [conformance]
 slow = "weather.slow"

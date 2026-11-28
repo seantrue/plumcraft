@@ -6,7 +6,7 @@
 //
 // Launch arguments (scripts: `simctl launch`, `devicectl device process launch`):
 //   --open PATH                 open this graph at launch (a path the app can read)
-//   --open-sample NAME          open the bundled sample NAME (Documents/Samples/NAME.json)
+//   --open-sample NAME          open the bundled sample NAME (Documents/Samples/NAME.plum)
 //   --control-token-file F      open the core's control port (loopback, port 0) with its token in F
 //   --status-file F             write the app's state as JSON to F (pid, port, scenes, readiness);
 //                               a relative F is inside the container's tmp (a device's scripts
@@ -98,7 +98,7 @@ struct Options {
                 o.also = v == "none" ? [] : v.split(separator: ",").map(String.init)
             case "--hide-watched": break  // N4 slice 3: no Watched column to hide
             case "--open-empty":
-                let u = FileManager.default.temporaryDirectory.appendingPathComponent("conformance-empty.json")
+                let u = FileManager.default.temporaryDirectory.appendingPathComponent("conformance-empty.plum")
                 try? Data(#"{"version": 1, "nodes": {}, "wires": []}"#.utf8).write(to: u, options: .atomic)
                 o.open.append(u.path)
             case "--control-bind": o.controlBind = next()
@@ -471,6 +471,9 @@ enum CoreHost {
         setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
         var config = ShellConfig(appID: AppID.bundle, appName: AppID.name, version: ShellConfig.bundleVersion, storeRoot: store)
         config.dirs = ["documents": d.documents.path, "caches": d.caches.path, "scratch": d.scratch.path, "prefs": d.prefs.path, "logs": d.logs.path]
+        // the samples the app ships (B185): they, and unchanged copies of them (Documents/Samples,
+        // a scripted launch's scratch copy), are the app's own graphs, not held for review
+        if let samples = Bundle.main.url(forResource: "Samples", withExtension: nil) { config.dirs["bundled"] = samples.path }
         // contract 4.2: no programs, no craft apps, no Python; in-process engines only
         config.platform = ["os": "ios", "subprocess": false, "craft_apps": false, "python": false, "multi_window": true,
                            "pointer": true, "keyboard": true, "hover": true, "pencil": true, "max_picture_px": 2048]

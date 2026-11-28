@@ -4,8 +4,8 @@ An engine installed as a package (`uv tool install`, `pipx`, `pip`) has a consol
 manifest PlumCraft can find. `register` writes one into `~/.config/plumcraft/engines/<id>.toml`
 (the folder every editor reads, `docs/interface.md` 16.6) that starts the engine with the
 interpreter it was installed with, so it works wherever the script lives. The demo is the one the
-package carries (`<package>/examples/demo.json`, which the generated project's wheel includes),
-when it has one. `unregister` removes a manifest `register` wrote, and nothing else.
+package carries (`<package>/examples/demo.plum`, which the generated project's wheel includes;
+`demo.json` in a package generated before graphs were `.plum` files), when it has one. `unregister` removes a manifest `register` wrote, and nothing else.
 
 A development checkout is offered by linking its own manifest there (`scripts/install`). That
 link is left alone unless `--force`, so registering an installed copy never silently replaces the
@@ -52,11 +52,15 @@ def _package(cls: type) -> str:
 
 def _demo(package: str) -> Path | None:
     try:
-        demo = resources.files(package) / "examples" / "demo.json"
+        folder = resources.files(package) / "examples"
     except (ModuleNotFoundError, TypeError):
         return None
-    path = Path(str(demo))
-    return path if path.is_file() else None
+    # `demo.plum` (FR8: graphs are `.plum` files); `demo.json` in a package made before
+    for name in ("demo.plum", "demo.json"):
+        path = Path(str(folder / name))
+        if path.is_file():
+            return path
+    return None
 
 
 def shown(p: Path | str) -> str:
