@@ -182,7 +182,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate, PHPickerViewContro
             })
             present(alert, for: a)
         case .prompt?:
-            let alert = UIAlertController(title: p["title"].string ?? AppID.name, message: p["text"].string, preferredStyle: .alert)
+            let alert = UIAlertController(title: p["title"].string ?? AppID.name, message: AskWords.promptMessage(p), preferredStyle: .alert)
             let answers = (p["answers"].array ?? []).compactMap(\.string)
             for ans in answers.isEmpty ? ["ok"] : answers {
                 let style: UIAlertAction.Style = ans == "cancel" ? .cancel : ans == "discard" ? .destructive : .default

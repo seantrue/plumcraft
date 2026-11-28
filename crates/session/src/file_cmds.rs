@@ -178,15 +178,16 @@ fn graph_open(s: &mut Session, p: &Value) -> Result<Value> {
     // never writes over the picture it came from.
     if let Some(opener) = opener_for(&path) {
         let graph = read_opened(&path, &opener)?;
-        s.replace_opened(graph, path.clone());
+        s.replace_opened(graph, path.clone(), path.clone());
         s.forget_path();
         let mut out = opened(s);
         out["openedFrom"] = json!(path.display().to_string());
         return Ok(out);
     }
     // A bundle unpacks into a new folder beside it, and its workflow opens from there.
+    let from = path.clone();
     let (graph, path, bundle) = crate::archive::read_workflow_or_bundle(path)?;
-    s.replace_opened(graph, path);
+    s.replace_opened(graph, path, from);
     let mut out = opened(s);
     if let Some(b) = bundle {
         out["unpackedFrom"] = json!(b.display().to_string());

@@ -193,6 +193,10 @@ public sealed class Asks(DocWindow window, DocumentModel model)
 
     static string Detail(JsonElement p)
     {
+        // what the prompt lists, in the core's words (B185: a review's detail is an object, which
+        // was shown as its raw JSON)
+        if (p.Get("lines") is { ValueKind: JsonValueKind.Array } lines)
+            return string.Join("\n", lines.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : null).Where(x => x is not null));
         var d = p.Get("detail");
         if (d is not { } v) return "";
         // the save's question: its text already says the shape; say where the NumPy file would go

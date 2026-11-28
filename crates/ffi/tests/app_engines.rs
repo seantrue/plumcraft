@@ -71,6 +71,10 @@ fn an_applications_engine_registered_before_the_core_opens_is_offered_in_process
     let info = c.run("graph.info", json!({}));
     assert_eq!(info["problemCount"].as_u64(), Some(0), "{info}");
     c.run("run.watch", json!({"node": "r", "port": "text"}));
+    // a file from elsewhere, as every graph read from a file is (B185): held until approved
+    let held = c.run("run.start", json!({}));
+    assert!(held.get("held").is_some(), "{held}");
+    c.run("graph.trust", json!({}));
     c.run("run.start", json!({}));
     let done = c.call("ui.waitRun", json!({"timeout": 25}));
     assert_eq!(done["ok"], true, "{done}");
