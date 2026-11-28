@@ -4,12 +4,28 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B187. Tests read commonkit's policy file from the real store's folder
+
+- Reported: 2026-11-28 (an agent, running the C ABI tests for B185)
+- Report: the Rust tests print that commonkit read its policy file from the real cache folder, though a scratch store root was given: the policy lookup does not follow the root. Seen before the B185 change too.
+- Context: commonkit, by way of `crates/ffi` tests. Not confirmed by the controller. A fix belongs in commonkit.
+- Issue: none
+
+### B186. On the Mac a value's Share opens on the graph's window, not the pop-out it was pressed in
+
+- Reported: 2026-11-28 (an agent, launching Share for B184)
+- Report: the pop-out's Share opens the system's picker anchored on the graph window.
+- Context: `native/apple/PlumCraftMac/App/Asks.swift`. Seen in a scripted launch.
+- Issue: none
+
 ### B184. No Send To on the iPad or the Mac
 
 - Reported: 2026-11-28
 - Report: "I note we don't have send-to on ipad or mac"
 - Context: said while asking what is left before the native apps match the egui editor. `docs/shell-interface.md` names `shell.share_targets` ("Empty: Send To is not offered") and maps the earlier spike's `SendTo` to it, and note 24's stage N6 lists "its openers and Send To through the asks"; no code in the core, the C ABI or the Apple shells reads `share_targets` (searched 2026-11-28). The shells do have Share… (the system's share sheet) for a value and for a graph, and Open in … and Open With.
 - Open question: which Send To: the application's own list of places to send a result (the spike's), or something the egui editor shows that the native shells do not?
+- Decided, 2026-11-28 (note 24 section 23, card 1): Share… is Send To; launch-test it on the Mac and iPad, fix what that finds, close this.
+- Progress, 2026-11-28 (branch `fix/b185-b184-trust-share`): launched for a graph and for a value. iPad simulator: the sheet came up with the graph's `.plum` and the value's file, and closed with nothing picked; one fix (the sheet is presented from the top-most view, so it shows over a pop-out). Mac: the picker came up with the right file both times, but a scripted launch could not close it (the app is never brought to the front), so cancelling is not shown there; B186 found. Open until a person has cancelled a share on the Mac.
 - Issue: none
 
 ### B183. `plumcraft-engine new --sdk pypi` writes a README that describes a path or git SDK
@@ -315,6 +331,16 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B185. A graph from elsewhere runs with no trust review on the native shells
+
+- Reported: 2026-11-28 (an agent, auditing the native shells against the egui editor; the controller confirmed the code)
+- Report: only the egui editor calls `Session::set_trust_file` (`apps/plumcraft-editor/src/lib.rs`); the C ABI core never does, so on the Mac, the iPad and Windows a graph from elsewhere is not held for review before it runs.
+- Context: `crates/ffi`, `crates/session/src/trust.rs`. Not launched: seen in code only.
+- Cause: confirmed by a test at the C ABI before the fix: a graph from elsewhere showed no review pending and its run went out.
+- Fix: the C ABI core keeps approvals in `trusted.json` beside the shell's preferences, shared by a core's documents; a graph read from a file is held as in the egui editor; an empty graph and a shell's own bundled graphs (`dirs.bundled`, new) are not. The prompt carries its list as `lines`, which the Mac and iPad alerts had dropped. A graph a native app saved before this asks once. An application must name its own bundled folders in `dirs.bundled`, or its bundled graphs ask too.
+- Fixed: 2026-11-28, branch `fix/b185-b184-trust-share`. Launched on the Mac and the iPad simulator. Windows: source changed, not built or launched.
+- Issue: none
 
 ### B177. Windows: the status line is not fitted again when an open window is narrowed
 

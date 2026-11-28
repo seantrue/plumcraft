@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-28 — The parity audit, the trust review on the native shells (B185), and Share launched (B184) (Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
+
+The maintainer: "What is left on the roadmap to native app parity with the egui version? (I note we don't have send-to on ipad or mac)". There was no such list, so an agent made one (`claude-debug/native-parity-2026-11-28.md`, 190 commands by shell, read from code and from the tests that launch things; nothing launched for it). Ten points went to the maintainer as cards: "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A" (note 24 section 23).
+
+**A defect the audit found in AI-built work.** The native shells never turned the trust review on: only the egui editor called `set_trust_file`, so since the first native build a graph from elsewhere ran at once on the Mac, the iPad and Windows. No test caught it, because every shell test opened graphs it had made; the audit caught it by reading. The maintainer: "Fix now, ahead of everything else" (card 2).
+
+**The fix (an agent).** A failing C ABI test first (3 of 4 failed: no review pending, the run sent). Then: approvals in the core beside the shell's preferences, shared by its documents; egui's rule for what is held; two additions, an empty graph and a shell's own bundled folders (`dirs.bundled`); the prompt's list as `lines`, which the Mac and iPad alerts had been dropping and Windows would have shown as JSON. ~790 lines added across 20 files, tests included. Launched: the Mac app (the review sheet, nothing run before Trust, then the run) and the iPad simulator by a new UI test. The controller re-ran the C ABI trust test (5 of 5). Windows: source only, not built.
+
+**Share (card 1: "Share… is Send To").** Launched for a graph and a value on the Mac and the iPad simulator; the right file each time. One fix, found by reading and never seen failing: the iPad's sheet was presented under an open pop-out. On the Mac the picker could not be closed by a scripted launch, so B184 stays open for a person to cancel one; B186 found.
+
+**Costs and slips.** With the disk at 5 GB the agent deleted about 20 GB of test binaries it had built in a shared target folder, and their fingerprints, so other work on that folder relinks. Its Mac pictures show the maintainer's contacts in the share picker; they are untracked and must stay so.
+
 ### 2026-11-28 — Every graph that ships is a `.plum` file (FR8) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 The maintainer: "Make .plum the default file extension for all graphs". FR2 had already made `.plum` what a new graph gets; this is everything that already existed.
