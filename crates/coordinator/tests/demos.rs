@@ -58,7 +58,7 @@ fn floats(c: &Coordinator, v: &PortValue) -> Vec<f32> {
 
 #[test]
 fn trace_and_measure() {
-    let demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/trace-and-measure.json")).unwrap();
+    let demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/trace-and-measure.plum")).unwrap();
     // One store for both, as every engine on a machine shares the commonkit tree. (Engines
     // with different stores need the coordinator to move the bytes: step 6, not built; today a
     // value crossing to such an engine is a `missing_source` node error.)
@@ -97,7 +97,7 @@ fn trace_and_measure() {
 /// the chord's notes; the text's code points are stretched by the array engine.
 #[test]
 fn what_a_chord_looks_like() {
-    let demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/chord.json")).unwrap();
+    let demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/chord.plum")).unwrap();
     let (r1, r2, r3) = (root(), root(), root());
     let audio = host(Box::new(move || Ok(plumcraft_audio::engine().with_store(Some(r1.clone()))))).unwrap();
     let array = host(Box::new(move || Ok(plumcraft_array::engine().with_store(Some(r2.clone()))))).unwrap();
@@ -134,7 +134,7 @@ fn what_a_chord_looks_like() {
 /// GridCraft can't start.
 #[test]
 fn analytics_in_gridcraft() {
-    let demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/analytics.json")).unwrap();
+    let demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/analytics.plum")).unwrap();
     let r = root();
     let (r1, r2, r3) = (r.clone(), r.clone(), r);
     let text = host(Box::new(move || Ok(plumcraft_text::engine().with_store(Some(r1.clone())))));
@@ -175,7 +175,7 @@ fn analytics_in_gridcraft() {
 /// different poster.
 #[test]
 fn synesthesia() {
-    let mut demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/synesthesia.json")).unwrap();
+    let mut demo: Value = serde_json::from_str(include_str!("../../../apps/plumcraft-editor/demos/synesthesia.plum")).unwrap();
     let demos = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/plumcraft-editor/demos");
     demo["nodes"]["voice"]["values"]["path"] = json!(format!("{demos}/synesthesia-voice.wav"));
     let r = root();

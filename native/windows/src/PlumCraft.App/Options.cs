@@ -1,6 +1,6 @@
 // The app's command line.
 //
-//   PlumCraft.exe [graph.json ...]           each graph in its own window (none: one untitled window)
+//   PlumCraft.exe [graph.plum ...]           each graph in its own window (none: one untitled window)
 //     --root DIR                  every root the core and its engines write under DIR (default
 //                                 %LOCALAPPDATA%\Plummer): store, marks, preferences, scratch, logs
 //     --engine text|array         the engine the core starts on (default text; the core starts the

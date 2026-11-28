@@ -4,7 +4,7 @@
 //! An engine installed as a binary (`cargo install`, a release archive) has nowhere PlumCraft
 //! looks. `register` writes `~/.config/plumcraft/engines/<id>.toml` (the folder every editor
 //! reads, `docs/interface.md` 16.6) that starts this very executable, with the arguments the
-//! engine names; its demo, when it has one, goes beside it as `<id>.demo.json`. `unregister`
+//! engine names; its demo, when it has one, goes beside it as `<id>.demo.plum`. `unregister`
 //! removes what `register` wrote, and nothing else: a checkout's link to its own manifest is left
 //! alone unless `--force`.
 //!
@@ -75,9 +75,20 @@ pub fn manifest(own: &Own, program: &str, exe: &Path) -> String {
         format!("hint = {}", quoted(&format!("reinstall it, then run `{program} register` again"))),
     ];
     if own.demo.is_some() {
-        lines.push(format!("demo = {}", quoted(&format!("{}.demo.json", own.id))));
+        lines.push(format!("demo = {}", quoted(&demo_name(&own.id))));
     }
     lines.join("\n") + "\n"
+}
+
+/// The file `register` writes an engine's demo to, beside its manifest: `<id>.demo.plum` (FR8).
+fn demo_name(id: &str) -> String {
+    format!("{id}.demo.plum")
+}
+
+/// The name versions before FR8 wrote the demo under, removed when the engine is registered
+/// again or unregistered.
+fn legacy_demo_name(id: &str) -> String {
+    format!("{id}.demo.json")
 }
 
 fn ours(path: &Path) -> bool {
@@ -161,7 +172,9 @@ fn register_as(own: &Own, args: &[String], program: &str, exe: &Path) -> Result<
     if target.is_symlink() {
         std::fs::remove_file(&target).map_err(|e| format!("{}: {e}", target.display()))?;
     }
-    let demo = dir.join(format!("{}.demo.json", own.id));
+    let demo = dir.join(demo_name(&own.id));
+    // the name an earlier version wrote the demo under (FR8: graphs are `.plum` files)
+    let _ = std::fs::remove_file(dir.join(legacy_demo_name(&own.id)));
     match &own.demo {
         Some(d) => std::fs::write(&demo, d).map_err(|e| format!("{}: {e}", demo.display()))?,
         None => {
@@ -183,7 +196,8 @@ fn unregister(own: &Own, args: &[String], program: &str) -> Result<String, Strin
         return Err(format!("{} wasn't written by `{program} register`; leaving it", target.display()));
     }
     std::fs::remove_file(&target).map_err(|e| format!("{}: {e}", target.display()))?;
-    let _ = std::fs::remove_file(dir.join(format!("{}.demo.json", own.id)));
+    let _ = std::fs::remove_file(dir.join(demo_name(&own.id)));
+    let _ = std::fs::remove_file(dir.join(legacy_demo_name(&own.id)));
     Ok(format!("unregistered {}\n", own.id))
 }
 
@@ -232,7 +246,7 @@ mod tests {
         let m = manifest(&own(), "river-engine", Path::new("/opt/bin/river-engine"));
         assert!(m.starts_with("# Written by `river-engine register`"), "{m}");
         assert!(m.contains(r#"command = ["/opt/bin/river-engine", "--pack", "/a b/p.toml"]"#), "{m}");
-        assert!(m.contains(r#"demo = "river.demo.json""#) && m.contains(r#"name = "River gauges""#), "{m}");
+        assert!(m.contains(r#"demo = "river.demo.plum""#) && m.contains(r#"name = "River gauges""#), "{m}");
     }
 
     #[test]
@@ -242,11 +256,14 @@ mod tests {
         assert_eq!(handle(&reg, "river-engine", &args(&["register"], &dir)), Some(ExitCode::SUCCESS));
         let text = std::fs::read_to_string(dir.join("river.toml")).unwrap();
         assert!(text.contains("mode = \"process\""));
-        assert_eq!(std::fs::read_to_string(dir.join("river.demo.json")).unwrap(), "{\"nodes\": {}}");
-        // again: its own is replaced
+        assert_eq!(std::fs::read_to_string(dir.join("river.demo.plum")).unwrap(), "{\"nodes\": {}}");
+        // again: its own is replaced, and a demo an earlier version wrote as `.json` goes (FR8)
+        std::fs::write(dir.join("river.demo.json"), "{}").unwrap();
         assert_eq!(handle(&reg, "river-engine", &args(&["register"], &dir)), Some(ExitCode::SUCCESS));
+        assert!(!dir.join("river.demo.json").exists() && dir.join("river.demo.plum").is_file());
+        std::fs::write(dir.join("river.demo.json"), "{}").unwrap();
         assert_eq!(handle(&reg, "river-engine", &args(&["unregister"], &dir)), Some(ExitCode::SUCCESS));
-        assert!(!dir.join("river.toml").exists() && !dir.join("river.demo.json").exists());
+        assert!(!dir.join("river.toml").exists() && !dir.join("river.demo.plum").exists() && !dir.join("river.demo.json").exists());
         assert_eq!(handle(&reg, "river-engine", &args(&["unregister"], &dir)), Some(ExitCode::FAILURE), "nothing there");
         // a checkout's link is left alone unless forced, and never unregistered
         let checkout = dir.parent().unwrap().join("plumcraft-engine.toml");

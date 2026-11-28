@@ -352,7 +352,7 @@ def write_files(p: Plan, root: Path) -> None:
         "tests/test_conformance.py": template("test_conformance.py.tmpl").substitute(v),
         "tests/test_nodes.py": template("test_nodes.py.tmpl").substitute(v | {"imports": node_imports, "nodes": by_type(p, "test_nodes_")}),
         "tests/test_roundtrips.py": template("test_roundtrips.py.tmpl").substitute(v | {"imports": pair_imports, "pairs": by_type(p, "test_pairs_")}),
-        "examples/demo.json": json.dumps(demo(p), indent=2) + "\n",
+        "examples/demo.plum": json.dumps(demo(p), indent=2) + "\n",
     }
     files |= {f"scripts/{name}": template(f"scripts/{name}.tmpl").substitute(v) for name in SCRIPTS}
     if p.pycharm:
@@ -373,10 +373,10 @@ def pycharm_files(p: Plan) -> dict[str, str]:
     """Shared run configurations in `.run/`, using the project's `.venv`, and a minimal `.idea/`:
     no `misc.xml`, which names a machine's interpreter (`docs/research/17-engine-generator.md`, 6.1)."""
     v = p.values()
-    attached = "run examples/demo.json --attach http://127.0.0.1:7311"
+    attached = "run examples/demo.plum --attach http://127.0.0.1:7311"
     modules = (
         ("Serve (HTTP 7311)", p.package, "--listen 127.0.0.1:7311 --token-file .engine-token"),
-        ("Run demo", "plumcraft_engine.cli", "run examples/demo.json"),
+        ("Run demo", "plumcraft_engine.cli", "run examples/demo.plum"),
         ("Run demo (attached)", "plumcraft_engine.cli", attached),
         ("Nodes", "plumcraft_engine.cli", "nodes"),
     )

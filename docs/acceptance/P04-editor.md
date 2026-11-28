@@ -26,7 +26,7 @@ cargo run -p plumcraft-editor                 # Rust engine in-process; or --pro
 | 14 | (E2) Select nodes, Cmd+C, click elsewhere, Cmd+V | Copies with fresh ids, wires among them kept | |
 | 15 | (E2) **File → Save As…**, then quit and `cargo run -p plumcraft-editor -- <that file>` | The title shows the file name, with • while unsaved; the graph comes back with positions and values | |
 | 16 | (E2) Edit, then **File → New** or **Open** | "Unsaved changes" asks first; Cancel keeps the graph | |
-| 17 | (E2) `cargo run -p plumcraft-editor -- examples/data.json` | `readme` loads `../README.md` relative to the workflow's folder (now so in the CLI and viewer too) | |
+| 17 | (E2) `cargo run -p plumcraft-editor -- examples/data.plum` | `readme` loads `../README.md` relative to the workflow's folder (now so in the CLI and viewer too) | |
 | 18 | (E3) Select think, swap and shout; **Group → Group** (Cmd+G) | They become a group; its header chevron collapses it to one node | |
 | 19 | (E3) On the group, promote `swap`'s *find* (node menu or group menu) and an output | The collapsed group shows the widget and an output pin; wire from it, edit the widget, run | |
 | 20 | (E3) Enter the group (pencil), edit inside, leave by the breadcrumb; then Cmd+Shift+G | Ungroups; Cmd+Z brings the group back | |
