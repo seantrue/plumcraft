@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-28 — The dev branch merged to main; Python SDK 0.3.1 released (Claude Fable 5.2)
+
+**What the maintainer asked.** "Is it time to go from dev -> main?" The controller proposed three steps (let the SDK fix merge, run the Mac conformance suite on dev, then merge to main and upload the SDK) and the maintainer said "go for 1-3".
+
+**What was done.** The dev branch went to main as #241 (merge `7269625`): `.plum` everywhere (#237), the trust review on the native shells (#238), the SDK fixes (#240). `v0.3.1` is tagged on that commit. The SDK was built from main's tree in a scratch folder (wheel and sdist, `twine check` passed, the wheel installed in a fresh environment, its contents identical to the wheel checked before the merge) and uploaded to PyPI. No crate was released.
+
+**How it was checked.** Each of the three PRs passed the Linux gate on its own branch. The Mac conformance suite on dev: 86 of 86 cases, 1,323 steps, 10 cases skipped (that run set up no test engine, so Save Result and the path and mask editor cases were not re-checked against the trust change). Not built or launched: the Windows shell.
+
+**Wrong turns.** The first Mac conformance run tested nothing: the controller started it in a checkout whose Apple library held only the iPad device slice, so the Mac app could not link. It was re-run from a worktree with the same tree, after building the Mac slice there. #241's gate failed once on the uv cache lock timeout (B178) before any test ran; the job was re-run once and passed.
+
 ### 2026-11-28 — Python SDK 0.3.1 prepared: SPDX licence ids (B182), the generated README (B183) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 The maintainer: "fix the python sdk". Both faults were in AI-written SDK code, found earlier the same day by an agent moving the external engines to SDK 0.3, not by any test.
