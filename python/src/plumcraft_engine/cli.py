@@ -44,7 +44,7 @@ USAGE = """usage: plumcraft-engine nodes [--engine MODULE:CLASS | --attach URL]
        plumcraft-engine run [WORKFLOW.plum] [--engine MODULE:CLASS | --attach URL] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
        plumcraft-engine check [--engine MODULE:CLASS] [--mode process|http]
        plumcraft-engine new DEST [--id ID] [--name NAME] [--types text,table,array,…] [--package NAME]
-                            [--sdk path|git[@REV]] [--python 3.X] [--no-pycharm] [--git]"""
+                            [--sdk pypi|path|git[@REV]] [--python 3.X] [--no-pycharm] [--git]"""
 CAPS = ["events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json"]
 # A watched excerpt as printed: at most this many lines, each cut to this width.
 EXCERPT_LINES, EXCERPT_WIDTH = 8, 120

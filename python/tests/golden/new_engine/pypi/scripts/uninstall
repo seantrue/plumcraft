@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Stop offering this engine: removes the link scripts/install made.
+set -euo pipefail
+link="$HOME/.config/plumcraft/engines/weather.toml"
+if [[ -L "$link" ]]; then
+    rm "$link"
+    echo "uninstalled weather"
+else
+    echo "weather isn't installed" >&2
+fi
