@@ -1,0 +1,249 @@
+{
+  "nodes": [
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "Add two numbers. Widgets that can also be wired, with a range the engine enforces.",
+      "display": "Add",
+      "family": "weather",
+      "id": "weather.add",
+      "inputs": [
+        {
+          "default": 1.0,
+          "max": 1000000000.0,
+          "min": -1000000000.0,
+          "name": "a",
+          "type": "FLOAT"
+        },
+        {
+          "default": 2.0,
+          "label": "Plus",
+          "max": 1000000000.0,
+          "min": -1000000000.0,
+          "name": "b",
+          "tooltip": "Added to a",
+          "type": "FLOAT"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "float",
+          "type": "FLOAT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "A number as text. The inverse of Parse Number. `invalid=\"clamp\"` brings decimals into range.",
+      "display": "Format Number",
+      "family": "weather",
+      "id": "weather.format_number",
+      "inputs": [
+        {
+          "default": 1.5,
+          "max": 1000000000.0,
+          "min": -1000000000.0,
+          "name": "value",
+          "type": "FLOAT"
+        },
+        {
+          "default": 2,
+          "max": 12.0,
+          "min": 0.0,
+          "name": "decimals",
+          "type": "INT"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "string",
+          "type": "STRING"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "Hex back to text. The inverse of Text to Hex. Hex that isn't UTF-8 is an op error: a failure on this input.",
+      "display": "Hex to Text",
+      "family": "weather",
+      "id": "weather.hex_to_text",
+      "inputs": [
+        {
+          "default": "636f726769",
+          "name": "string",
+          "type": "STRING"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "Text as a number. The inverse of Format Number. Text that isn't one is a config error: the user can fix it.",
+      "display": "Parse Number",
+      "family": "weather",
+      "id": "weather.parse_number",
+      "inputs": [
+        {
+          "default": "1.5",
+          "name": "string",
+          "type": "STRING"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "float",
+          "type": "FLOAT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "Loud text. A socket, a clamped widget and a choice; empty text is a config error.",
+      "display": "Shout",
+      "family": "weather",
+      "id": "weather.shout",
+      "inputs": [
+        {
+          "name": "text",
+          "socket": "socket",
+          "type": "TEXT"
+        },
+        {
+          "default": 2,
+          "max": 5.0,
+          "min": 0.0,
+          "name": "marks",
+          "tooltip": "How many exclamation marks",
+          "type": "INT"
+        },
+        {
+          "choices": [
+            "upper",
+            "title"
+          ],
+          "default": "upper",
+          "name": "case",
+          "type": "ENUM"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather",
+        "Testing"
+      ],
+      "description": "Passes its input through after `seconds`, reporting progress and stopping on cancel. How a long node behaves.",
+      "display": "Slow",
+      "family": "weather",
+      "id": "weather.slow",
+      "inputs": [
+        {
+          "name": "text",
+          "socket": "socket",
+          "type": "TEXT"
+        },
+        {
+          "default": 0.05,
+          "max": 600.0,
+          "min": 0.0,
+          "name": "seconds",
+          "type": "FLOAT"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "A source: the text typed into its widget.",
+      "display": "Text",
+      "family": "weather",
+      "id": "weather.text",
+      "inputs": [
+        {
+          "default": "a corgi naps",
+          "name": "text",
+          "type": "STRING"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "Text as the hex of its UTF-8 bytes. The inverse of Hex to Text.",
+      "display": "Text to Hex",
+      "family": "weather",
+      "id": "weather.text_to_hex",
+      "inputs": [
+        {
+          "name": "text",
+          "socket": "socket",
+          "type": "TEXT"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "string",
+          "type": "STRING"
+        }
+      ]
+    }
+  ],
+  "wire_types": [
+    {
+      "id": "FLOAT",
+      "media": "scalar"
+    },
+    {
+      "id": "INT",
+      "media": "scalar"
+    },
+    {
+      "id": "STRING",
+      "media": "scalar"
+    },
+    {
+      "color": "#c9a227",
+      "id": "TEXT",
+      "media": "text",
+      "thumb": true
+    },
+    {
+      "id": "ENUM",
+      "media": "scalar"
+    }
+  ]
+}

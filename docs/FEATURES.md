@@ -6,6 +6,15 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 
 ## Open
 
+### FR9. A node for "Share file"
+
+- Reported: 2026-11-28
+- Report: "feat: add a node for \"Share file\""
+- Context: said after B184's work, where Share… (the system's share sheet, standing in for Send To) was launched on the Mac and iPad as a menu and pop-out command. No node shares anything today; a result reaches the share sheet only by a person pressing Share….
+- Design (the maintainer, 2026-11-28, to four questions: when it shares, what it takes, where it lives, what it does with no share sheet): "1 yes, 2 any value, core node, warning on \"share result\" for unsupported". The AI's reading of "1 yes": the suggestion made with question 1, a button on the node as a result node's Save Result… works, not a share on every run.
+- Open question: the format a value is exported in: its own default, or one the node names?
+- Issue: #239
+
 ### FR8. Every graph is a `.plum` file
 
 - Reported: 2026-11-28

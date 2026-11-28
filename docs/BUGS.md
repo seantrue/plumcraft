@@ -28,20 +28,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Progress, 2026-11-28 (branch `fix/b185-b184-trust-share`): launched for a graph and for a value. iPad simulator: the sheet came up with the graph's `.plum` and the value's file, and closed with nothing picked; one fix (the sheet is presented from the top-most view, so it shows over a pop-out). Mac: the picker came up with the right file both times, but a scripted launch could not close it (the app is never brought to the front), so cancelling is not shown there; B186 found. Open until a person has cancelled a share on the Mac.
 - Issue: none
 
-### B183. `plumcraft-engine new --sdk pypi` writes a README that describes a path or git SDK
-
-- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
-- Report: the generated README says "`pyproject.toml` takes the SDK from `[tool.uv.sources]`" and that the wheel "needs a release that has `register`", neither true when the SDK comes from PyPI.
-- Context: `python/src/plumcraft_engine/templates/engine/`. Not confirmed by the controller.
-- Issue: none
-
-### B182. An engine's acknowledgements can name a licence that is not an SPDX id
-
-- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
-- Report: `plumcraft_engine.acknowledgements.from_distributions` falls back to a package's classifier or free-form licence text when it has no `License-Expression`, so it answers "MIT License" or "Apache Software License" where spec 6.3 asks for an SPDX id or expression. The editor groups by licence, so "MIT License" and "MIT" would be separate rows (the second part not checked).
-- Context: `python/src/plumcraft_engine/acknowledgements.py`. Seen for `duckdb`, `pytz` and `opencv-python-headless`.
-- Issue: none
-
 ### B181. An application's iPad build does not carry the icons
 
 - Reported: 2026-11-28
@@ -332,6 +318,23 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B183. `plumcraft-engine new --sdk pypi` writes a README that describes a path or git SDK
+
+- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
+- Report: the generated README says "`pyproject.toml` takes the SDK from `[tool.uv.sources]`" and that the wheel "needs a release that has `register`", neither true when the SDK comes from PyPI.
+- Context: `python/src/plumcraft_engine/templates/engine/`. Not confirmed by the controller.
+- Cause: confirmed by a failing test: for `--sdk pypi` the README named a `[tool.uv.sources]` table that is not written and a release "that has `register`".
+- Fixed: 2026-11-28, branch `fix/sdk-b182-b183`: the README's SDK text is written for each choice (PyPI, a path, a pinned commit); a golden for `--sdk pypi`. In SDK 0.3.1.
+- Issue: none
+
+### B182. An engine's acknowledgements can name a licence that is not an SPDX id
+
+- Reported: 2026-11-28 (an agent, bringing the external engines to SDK 0.3 for FR7)
+- Report: `plumcraft_engine.acknowledgements.from_distributions` falls back to a package's classifier or free-form licence text when it has no `License-Expression`, so it answers "MIT License" or "Apache Software License" where spec 6.3 asks for an SPDX id or expression. The editor groups by licence, so "MIT License" and "MIT" would be separate rows (the second part not checked).
+- Context: `python/src/plumcraft_engine/acknowledgements.py`. Seen for `duckdb`, `pytz` and `opencv-python-headless`.
+- Cause: confirmed by a failing test with made-up packages (24 of 30 cases failed) and by reading the editor: it makes a row per exact licence string, so "MIT License" and "MIT" were two rows.
+- Fixed: 2026-11-28, branch `fix/sdk-b182-b183`: `License-Expression` first, then a table from trove classifiers and common names to SPDX ids, no network; what names no one licence ("BSD License") is `LicenseRef-unknown` with the metadata's own words in the text, never a guess. The plain "Apache Software License" classifier is read as Apache-2.0, a judgement. In SDK 0.3.1.
+
 ### B185. A graph from elsewhere runs with no trust review on the native shells
 
 - Reported: 2026-11-28 (an agent, auditing the native shells against the egui editor; the controller confirmed the code)
@@ -352,7 +355,6 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Seen once, not chased: a window started narrow showed no status line for its first seconds, before any run.
 - Issue: none
 
-
 ### B179. The lockfile held a withdrawn `async-executor` (1.14.0), which has a use-after-free
 
 - Reported: 2026-11-25, seen by the controlling session as a warning while packaging 0.8.0; the maintainer: "investigate async-executor 1.14.0 in PlumCraft's lockfile is yanked on crates.io", then, shown the finding, "d0 it".
@@ -371,7 +373,6 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Fixed: 2026-11-25, branch `pr/fix-b174-b175`. `about.toml` names every workspace crate as MIT OR Apache-2.0 with the workspace's two files; the seven crates gain the licence links the others have. The window never listed the project's own crates, so the fault was in the shipped data; the adapted project's acknowledgement still shows as its own entry.
 - Issue: none
 
-
 ### B175. Acknowledgements: duplicate entries in the licence list
 
 - Reported: 2026-11-25
@@ -382,7 +383,6 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Decided (the maintainer, 2026-11-25, on the release checklist): "6B", fix it together with B174.
 - Fixed: 2026-11-25, branch `pr/fix-b174-b175`. A crate offering a choice of licences is under one at every version (one image decoder had one version under each); the same text taken twice from two files of one crate is taken once; a crate that needs several licences at once stays in each row and says "(also under …)" beside its name inside the row, from a new optional `also` on a row's package; a bundled part's own notice is kept and the package listed once. Not checked by the maintainer. Left: in the closed rows' titles a font package still names itself in three rows, since it is under all three.
 - Issue: none
-
 
 ### B173. Mac: a click on a node's mask row does not open the mask editor
 

@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-28 — Python SDK 0.3.1 prepared: SPDX licence ids (B182), the generated README (B183) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+The maintainer: "fix the python sdk". Both faults were in AI-written SDK code, found earlier the same day by an agent moving the external engines to SDK 0.3, not by any test.
+
+**B182.** A failing test first, with made-up packages (24 of 30 cases). `acknowledgements.py` now takes `License-Expression`, else maps about 55 trove classifiers and the common free-form names to SPDX ids from a table in the SDK; what it cannot pin down is `LicenseRef-unknown` with the metadata's words kept. **B183.** The generator's README was written for a checkout whatever `--sdk` said; it now has text for each choice, and a fourth golden covers `--sdk pypi`. **0.3.1.** Version, lock, the generator's pin (`>=0.3.1,<0.4`), the changelog. Built, `twine check` passed, installed into a fresh environment, a generated engine's tests (17) and conformance (14 of 14) passed there, `register --print` named its `demo.plum`. Python tests 372 passed.
+
+**What went wrong.** The agent's Rust test build filled the Mac's disk to nothing in a shared build folder; every shell stopped, and the maintainer had to delete the folder by hand. So the Rust tests that read the generator's output were not run on the Mac; the Linux gate ran them. Nothing was uploaded.
+
 ### 2026-11-28 — The parity audit, the trust review on the native shells (B185), and Share launched (B184) (Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
 
 The maintainer: "What is left on the roadmap to native app parity with the egui version? (I note we don't have send-to on ipad or mac)". There was no such list, so an agent made one (`claude-debug/native-parity-2026-11-28.md`, 190 commands by shell, read from code and from the tests that launch things; nothing launched for it). Ten points went to the maintainer as cards: "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A" (note 24 section 23).
