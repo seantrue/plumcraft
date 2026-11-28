@@ -3,7 +3,7 @@
 //! lives here; the client, pool, CAS, selection compiler, memo and status code are generic.
 //!
 //! Every `packs/<id>.toml` ships built in ([`builtin`], [`BUILTIN`]; `build.rs` makes the table),
-//! with `packs/<id>-demo.json` as its demo workflow when present. `vectorcraft` has the 24 curated
+//! with `packs/<id>-demo.plum` as its demo workflow when present. `vectorcraft` has the 24 curated
 //! nodes, the effect nodes generated from `effect.list`, and the `vc.run` escape hatch.
 
 use std::collections::BTreeMap;
@@ -18,7 +18,7 @@ pub const VECTORCRAFT: &str = include_str!("../packs/vectorcraft.toml");
 pub const SOUNDCRAFT: &str = include_str!("../packs/soundcraft.toml");
 /// The VectorCraft demo workflow: open (choose a file) → Image Trace → Recolor → Export SVG,
 /// and Export PNG from the trace.
-pub const VECTORCRAFT_DEMO: &str = include_str!("../packs/vectorcraft-demo.json");
+pub const VECTORCRAFT_DEMO: &str = include_str!("../packs/vectorcraft-demo.plum");
 
 include!(concat!(env!("OUT_DIR"), "/packs.rs"));
 

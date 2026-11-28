@@ -95,7 +95,7 @@ def reverse(self, text: Text) -> Text:
 - **A long node:** take `*, cx: Cx`, call `cx.progress(fraction, stage)`, and stop when `cx.cancelled()`.
 - **A conversion ships with its inverse,** and a test in `tests/test_roundtrips.py` that goes there and back.
 
-Then add a test in `tests/test_nodes.py`, and run `UPDATE_GOLDEN=1 uv run pytest` once, because the catalogue changed. The golden file is what catches a renamed port, which would break saved workflows. If you add a node to `examples/demo.json`, the conformance check runs it too.
+Then add a test in `tests/test_nodes.py`, and run `UPDATE_GOLDEN=1 uv run pytest` once, because the catalogue changed. The golden file is what catches a renamed port, which would break saved workflows. If you add a node to `examples/demo.plum`, the conformance check runs it too.
 
 The PlumCraft SDK's `python/README.md` lists every annotation.
 

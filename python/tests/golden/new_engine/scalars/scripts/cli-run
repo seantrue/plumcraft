@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The same run through PlumCraft's Rust CLI, which starts this engine from its manifest.
 # It needs a built PlumCraft (see _plumcraft.sh).
-#   scripts/cli-run [GRAPH.json] [--http] [--watch NODE.PORT]...
+#   scripts/cli-run [GRAPH.plum] [--http] [--watch NODE.PORT]...
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/_plumcraft.sh

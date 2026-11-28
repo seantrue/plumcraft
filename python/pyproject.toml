@@ -67,7 +67,7 @@ norecursedirs = ["golden"]
 # generated engine's project names its own.
 [tool.plumcraft]
 engine = "plumcraft_text:TextEngine"
-demo = "../examples/data.json"
+demo = "../examples/data.plum"
 
 [tool.plumcraft.conformance]
 slow = "text.slow"

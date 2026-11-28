@@ -6,7 +6,7 @@
 //
 // Launch arguments (scripts: `simctl launch`, `devicectl device process launch`):
 //   --open PATH                 open this graph at launch (a path the app can read)
-//   --open-sample NAME          open the bundled sample NAME (Documents/Samples/NAME.json)
+//   --open-sample NAME          open the bundled sample NAME (Documents/Samples/NAME.plum)
 //   --control-token-file F      open the core's control port (loopback, port 0) with its token in F
 //   --status-file F             write the app's state as JSON to F (pid, port, scenes, readiness);
 //                               a relative F is inside the container's tmp (a device's scripts
@@ -98,7 +98,7 @@ struct Options {
                 o.also = v == "none" ? [] : v.split(separator: ",").map(String.init)
             case "--hide-watched": break  // N4 slice 3: no Watched column to hide
             case "--open-empty":
-                let u = FileManager.default.temporaryDirectory.appendingPathComponent("conformance-empty.json")
+                let u = FileManager.default.temporaryDirectory.appendingPathComponent("conformance-empty.plum")
                 try? Data(#"{"version": 1, "nodes": {}, "wires": []}"#.utf8).write(to: u, options: .atomic)
                 o.open.append(u.path)
             case "--control-bind": o.controlBind = next()

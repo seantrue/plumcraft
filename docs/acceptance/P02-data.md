@@ -5,7 +5,7 @@
 ```sh
 cd ~/workspace/plumcraft
 cargo build
-cargo run -p plumcraft-view -- examples/data.json --python
+cargo run -p plumcraft-view -- examples/data.plum --python
 ```
 
 The same checks hold with `--process` (Rust engine) and with neither (mode 1).

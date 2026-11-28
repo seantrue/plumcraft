@@ -41,7 +41,7 @@ pythonpath = ["src"]
 # What `plumcraft-engine nodes`, `run` and `check` use here.
 [tool.plumcraft]
 engine = "weather_engine:WeatherEngine"
-demo = "examples/demo.json"
+demo = "examples/demo.plum"
 
 [tool.plumcraft.conformance]
 slow = "weather.slow"

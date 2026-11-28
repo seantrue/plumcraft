@@ -156,11 +156,11 @@ cargo run -p plumcraft-editor -- --engine vectorcraft  # VectorCraft through the
 cargo run -p plumcraft-editor -- --engine array,vectorcraft         # several engines: opens Trace and measure
 cargo run -p plumcraft-editor -- --engine text,audio,array          # opens What a chord looks like
 cargo run -p plumcraft-editor -- --engine text,array,gridcraft      # opens Analytics in GridCraft
-cargo run -p plumcraft-editor -- examples/data.json --http --python # over HTTP, as a remote engine: uploads, downloads
+cargo run -p plumcraft-editor -- examples/data.plum --http --python # over HTTP, as a remote engine: uploads, downloads
 cargo run -p plumcraft -- run --watch shout.text   # the interface live in the terminal
-cargo run -p plumcraft-editor -- check flow.json     # what's wrong with a workflow, on the engines it names
-cargo run -p plumcraft-editor -- run flow.json --out results   # no window: its Result nodes, or else its Write Files nodes
-cargo run -p plumcraft-editor -- tidy flow.json      # Edit › Tidy, saved
+cargo run -p plumcraft-editor -- check flow.plum     # what's wrong with a workflow, on the engines it names
+cargo run -p plumcraft-editor -- run flow.plum --out results   # no window: its Result nodes, or else its Write Files nodes
+cargo run -p plumcraft-editor -- tidy flow.plum      # Edit › Tidy, saved
 ```
 
 **Write your own engine,** in Python, with no Rust build:

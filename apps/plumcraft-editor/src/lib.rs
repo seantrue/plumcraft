@@ -139,7 +139,7 @@ impl Default for AppConfig {
 /// is the editor's own, as the engine is built apart.
 fn demo(kind: EngineKind) -> Result<String, String> {
     match kind {
-        EngineKind::Audio => Ok(include_str!("../demos/audio.json").into()),
+        EngineKind::Audio => Ok(include_str!("../demos/audio.plum").into()),
         k => Ok(k.own_demo()?.unwrap_or_else(|| EMPTY_WORKFLOW.into())),
     }
 }
@@ -272,9 +272,9 @@ fn connect_with(kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>, bin: 
 /// needs, the workflow and its name. `--engine` naming exactly those engines, in any order,
 /// and no workflow, opens it.
 const MULTI_DEMOS: &[(&[&str], &str, &str)] = &[
-    (&["array", "vectorcraft"], include_str!("../demos/trace-and-measure.json"), "Trace and measure"),
-    (&["array", "audio", "text"], include_str!("../demos/chord.json"), "What a chord looks like"),
-    (&["array", "gridcraft", "text"], include_str!("../demos/analytics.json"), "Analytics in GridCraft"),
+    (&["array", "vectorcraft"], include_str!("../demos/trace-and-measure.plum"), "Trace and measure"),
+    (&["array", "audio", "text"], include_str!("../demos/chord.plum"), "What a chord looks like"),
+    (&["array", "gridcraft", "text"], include_str!("../demos/analytics.plum"), "Analytics in GridCraft"),
 ];
 
 /// The demo for exactly these engines, if there is one.

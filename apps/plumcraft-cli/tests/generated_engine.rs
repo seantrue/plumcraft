@@ -68,7 +68,7 @@ fn a_generated_engine_with_every_type_works_end_to_end() {
         let run = plumcraft(how);
         let out = text(&run);
         assert!(run.status.success(), "{out}");
-        let demo: serde_json::Value = serde_json::from_slice(&std::fs::read(dest.join("examples/demo.json")).unwrap()).unwrap();
+        let demo: serde_json::Value = serde_json::from_slice(&std::fs::read(dest.join("examples/demo.plum")).unwrap()).unwrap();
         let nodes = demo["nodes"].as_object().unwrap().len();
         let done = out.lines().filter(|l| l.split_whitespace().nth(1) == Some("done")).count();
         assert_eq!(done, nodes, "every node of the demo done, in the summary table: {out}");

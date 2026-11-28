@@ -45,7 +45,10 @@ enum Samples {
     static var folder: URL { CoreHost.dirs.documents.appendingPathComponent("Samples", isDirectory: true) }
     static let firstKey = "PlumCraftPadOpenedASample"
 
-    /// Copy the bundled samples into Documents/Samples (those not already there).
+    /// Copy the bundled samples into Documents/Samples (those not already there). A sample an
+    /// earlier version installed under another graph extension (FR8: `Showcase.json` before the
+    /// samples were `.plum`) is the person's copy, perhaps edited: it stays, and no second copy
+    /// is put beside it.
     static func install() {
         let fm = FileManager.default
         guard let src = Bundle.main.url(forResource: "Samples", withExtension: nil),
@@ -53,8 +56,21 @@ enum Samples {
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         for u in list where GraphFiles.isGraph(u) {
             let to = folder.appendingPathComponent(u.lastPathComponent)
-            if !fm.fileExists(atPath: to.path) { try? fm.copyItem(at: u, to: to) }
+            if !fm.fileExists(atPath: file(u.deletingPathExtension().lastPathComponent, in: folder).path) {
+                try? fm.copyItem(at: u, to: to)
+            }
         }
+    }
+
+    /// Sample `name`'s file in `dir`: the first graph extension it is there under (`.plum`, then
+    /// a `.json` an earlier version installed), else the name with the default extension.
+    static func file(_ name: String, in dir: URL) -> URL {
+        let rule = GraphFiles.current
+        for ext in rule.extensions {
+            let u = dir.appendingPathComponent(name).appendingPathExtension(ext)
+            if FileManager.default.fileExists(atPath: u.path) { return u }
+        }
+        return dir.appendingPathComponent(name).appendingPathExtension(rule.defaultExtension)
     }
 
     /// A fresh copy of bundled sample `name` in scratch, for a scripted launch (`--scratch-state`
@@ -63,11 +79,12 @@ enum Samples {
     /// container, and on a device the container stays) and changed the person's samples.
     static func scratchCopy(_ name: String) -> URL? {
         let fm = FileManager.default
-        guard let src = Bundle.main.url(forResource: "Samples", withExtension: nil)?.appendingPathComponent(name + ".json"),
-              fm.fileExists(atPath: src.path) else { return nil }
+        guard let bundled = Bundle.main.url(forResource: "Samples", withExtension: nil) else { return nil }
+        let src = file(name, in: bundled)
+        guard fm.fileExists(atPath: src.path) else { return nil }
         let dir = CoreHost.dirs.scratch.appendingPathComponent("samples", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let to = dir.appendingPathComponent(name + ".json")
+        let to = dir.appendingPathComponent(src.lastPathComponent)
         try? fm.removeItem(at: to)
         return (try? fm.copyItem(at: src, to: to)) != nil ? to : nil
     }
@@ -76,7 +93,7 @@ enum Samples {
     static func firstLaunch() -> URL? {
         if UserDefaults.standard.bool(forKey: firstKey) { return nil }
         UserDefaults.standard.set(true, forKey: firstKey)
-        let u = folder.appendingPathComponent("Showcase.json")
+        let u = file("Showcase", in: folder)
         return FileManager.default.fileExists(atPath: u.path) ? u : nil
     }
 
@@ -274,7 +291,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             b.open(URL(fileURLWithPath: p), then: o.then)
         } else if first, let n = o.sample {
             let fresh = o.scratchState ? Samples.scratchCopy(n) : nil
-            b.open(fresh ?? Samples.folder.appendingPathComponent(n + ".json"), then: o.then)
+            b.open(fresh ?? Samples.file(n, in: Samples.folder), then: o.then)
         } else if let ctx = connectionOptions.urlContexts.first {
             b.open(ctx.url)
         } else if !o.scratchState, let act = session.stateRestorationActivity, let (url, view) = Self.restored(act) {

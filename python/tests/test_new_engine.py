@@ -136,7 +136,7 @@ def test_the_output_is_well_formed_and_its_own_tests_pass(tmp, types):
     assert pyproject["tool"]["uv"]["sources"]["plumcraft-engine"] == {"path": SDK_POSIX, "editable": True}
     manifest = tomllib.loads((dest / "plumcraft-engine.toml").read_text())
     assert manifest["id"] == "weather" and manifest["mode"] == "process"
-    assert manifest["demo"] == "examples/demo.json" and manifest["conformance"]["slow"] == "weather.slow"
+    assert manifest["demo"] == "examples/demo.plum" and manifest["conformance"]["slow"] == "weather.slow"
     lint(dest)
     out = in_project(dest, "pytest", "-q", "-p", "no:cacheprovider")
     assert out.returncode == 0, out.stdout[-3000:] + out.stderr[-1000:]
@@ -194,7 +194,7 @@ def test_image_depends_on_pillow(tmp):
 def test_the_demo_uses_every_node(tmp, types):
     dest = tmp / "weather-engine"
     assert gen(dest, "--types", types) == 0
-    demo = json.loads((dest / "examples" / "demo.json").read_text())
+    demo = json.loads((dest / "examples" / "demo.plum").read_text())
     golden = json.loads((dest / "tests" / "golden" / "schema.json").read_text())
     own = {n["id"] for n in golden["nodes"] if n["id"].startswith("weather.")}
     assert {v["kind"] for v in demo["nodes"].values()} == own

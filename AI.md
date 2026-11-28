@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-28 — Every graph that ships is a `.plum` file (FR8) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+The maintainer: "Make .plum the default file extension for all graphs". FR2 had already made `.plum` what a new graph gets; this is everything that already existed.
+
+**What the agent did.** Surveyed the tracked `.json` files shaped like a graph and renamed 32 with `git mv`, with every reference (includes, build scripts, tests, docs, the iPad's sample list and UI tests). Made the writers write `.plum`: `plumcraft-engine new` (templates and goldens), the Rust and Python SDKs' `register`, the shells' conformance scripts. Kept old things working: Python's `register` falls back to `demo.json`, Rust's removes the `.demo.json` it used to write, and an iPad that already holds a sample as `.json` keeps it and gets no second copy. ~150 lines added and ~90 removed outside the goldens, across 99 files. Tests: tier 1 of test-affected 1,762 of 1,764 (the two failures are craft apps installed on the Mac that changed, not this work), Python 341 passed. Launched: Plummer's iPad app in the simulator, each of the five samples by its new name.
+
+**Where the controller's brief was wrong.** It said `docs/interface.md` should not change; the agent changed its three manifest lines that name the demo files, rightly. It counted about 87 graphs in the graphs repository; 22 are tracked, the rest run outputs. And "all graphs" could not be literal: conformance vectors and scene fixtures are JSON documents, not graph files, and stay.
+
+**Not done.** The Windows shell was not built (two text changes). The Mac shell and the egui editor were not launched. Opening a `.plum` from the Files app was not tried. No release: the published Python SDK still generates `demo.json`.
+
+**Also recorded here, 2026-11-28.** B181: "The [application] build is not carrying the icons on ipad." The controller guessed node icons and an agent spent a run proving those present before the maintainer was asked; the answer was the app icon ("the icon that shows in the dock, and at rest"), the application's own picture with a clear surround, fixed in its repository. FR7 (the external engines on SDK 0.3) turned up B182 and B183 in the SDK, neither confirmed by the controller.
+
 ### 2026-11-26 — test-affected and the shared CI setup, without the branch's history (Claude Opus 5.5 wrote it on 2026-11-13; Claude Fable 5.2 brought it in)
 
 **What the maintainer said.** "merge the claude/test-affected branch"; then, told that its files named private repositories and offered three ways, "Pending: as you suggest" (the work as one clean commit; #97 closed as superseded).
